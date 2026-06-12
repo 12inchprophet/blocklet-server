@@ -40,7 +40,7 @@
   },
   "homepage": "https://github.com/ArcBlock/blocklet-server/tree/main/core/docker-utils#readme",
   "dependencies": {
-    "joi": "17.12.2"
+    "joi": "17.13.4"
   },
   "devDependencies": {
     "@arcblock/eslint-config-ts": "^0.3.3",
