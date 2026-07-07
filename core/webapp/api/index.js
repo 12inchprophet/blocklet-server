@@ -21,6 +21,7 @@ const {
   USER_AVATAR_URL_PREFIX,
   USER_AVATAR_PATH_PREFIX,
   NODE_MODES,
+  ROLES,
 } = require('@abtnode/constant');
 const http = require('http');
 const { setUserInfoHeaders } = require('@abtnode/auth/lib/auth');
@@ -42,6 +43,48 @@ const createRelayServer = require('./ws/relay');
 
 const logger = log('webapp:index');
 
+const isLaunchBlockletReferer = req => {
+  const referrer = req.get('referer') || req.get('referrer');
+  if (!referrer) {
+    return false;
+  }
+
+  try {
+    const { pathname } = new URL(referrer, `${req.protocol}://${req.get('host') || 'localhost'}`);
+    return pathname.includes('/launch-blocklet');
+  } catch {
+    return false;
+  }
+};
+
+const isLaunchOnlyGuestAllowedRequest = req => {
+  const requestPath = `${req.baseUrl || ''}${req.path || req.url || ''}`;
+
+  if (
+    requestPath.includes('/api/oauth/debos-launch') ||
+    requestPath.includes('/oauth/debos-launch') ||
+    requestPath.includes('/oauth/debos-login')
+  ) {
+    return true;
+  }
+
+  if (
+    requestPath.includes('/api/did/session') ||
+    requestPath.includes('/api/did/refreshSession') ||
+    requestPath.includes('/api/gql')
+  ) {
+    return isLaunchBlockletReferer(req);
+  }
+
+  return false;
+};
+
+const restrictGuestDashboardSession = req => {
+  if (req.user?.role === ROLES.GUEST && !isLaunchOnlyGuestAllowedRequest(req)) {
+    req.user = null;
+  }
+};
+
 const createLoginAuth = require('./routes/auth/login');
 const createExchangePassportAuth = require('./routes/auth/exchange-passport');
 const createSwitchProfileAuth = require('./routes/auth/switch-profile');
@@ -53,6 +96,8 @@ const createIssuePassportAuth = require('./routes/auth/issue-passport');
 const createLostPassportListAuth = require('./routes/auth/lost-passport-list');
 const createLostPassportIssueAuth = require('./routes/auth/lost-passport-issue');
 const createInviteAuth = require('./routes/auth/invite');
+const createLoginDebosLaunchAuth = require('./routes/auth/login-debos-launch');
+const googleDebosLaunchRoutes = require('./routes/auth/google-debos-launch');
 const createLaunchFreeBlockletBySessionAuth = require('./routes/auth/launch-free-blocklet-by-session');
 const createLaunchFreeBlockletByLauncherAuth = require('./routes/auth/launch-free-blocklet-by-launcher');
 const createBindWalletAuth = require('./routes/auth/bind-wallet');
@@ -259,6 +304,8 @@ module.exports = function createServer(node) {
       req.user = user;
     }
 
+    restrictGuestDashboardSession(req);
+
     next();
   });
 
@@ -282,6 +329,8 @@ module.exports = function createServer(node) {
   handlers.attach(Object.assign({ app: router }, createLostPassportListAuth(node)));
   handlers.attach(Object.assign({ app: router }, createLostPassportIssueAuth(node)));
   handlers.attach(Object.assign({ app: router }, createInviteAuth(node)));
+  handlers.attach(Object.assign({ app: router }, createLoginDebosLaunchAuth(node)));
+  googleDebosLaunchRoutes.init(router, node);
   handlers.attach(Object.assign({ app: router }, createVerifyAppOwnershipAuth(node, 'spaces')));
   handlers.attach(Object.assign({ app: router }, createVerifyAppOwnershipAuth(node, 'disk')));
   handlers.attach(Object.assign({ app: router }, createRotateKeyPairAuth(node)));

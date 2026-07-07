@@ -207,6 +207,11 @@ export function App() {
           />
 
           <Route
+            path={`${WELLKNOWN_SERVICE_PATH_PREFIX}/admin/domains`}
+            element={<Navigate to={`${WELLKNOWN_SERVICE_PATH_PREFIX}/admin/website/domains`} replace />}
+          />
+
+          <Route
             path={`${WELLKNOWN_SERVICE_PATH_PREFIX}/admin/members`}
             element={<Navigate to={`${WELLKNOWN_SERVICE_PATH_PREFIX}/admin/did-connect/members`} replace />}
           />

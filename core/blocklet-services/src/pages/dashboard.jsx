@@ -1,7 +1,7 @@
 /* eslint-disable react/jsx-one-expression-per-line */
 import React, { useEffect, useCallback } from 'react';
 import { EVENTS, WELLKNOWN_BLOCKLET_ADMIN_PATH, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useNavigate, useParams } from 'react-router-dom';
 
 import Center from '@arcblock/ux/lib/Center';
 import styled from '@emotion/styled';
@@ -138,6 +138,10 @@ function Dashboard() {
     },
     [navigate, app]
   );
+
+  if (!ServiceComponent) {
+    return <Navigate to={`${WELLKNOWN_SERVICE_PATH_PREFIX}/admin/overview`} replace />;
+  }
 
   const content = !blocklet ? (
     <Center relative="parent">

@@ -3,6 +3,8 @@ export const APP_STRUCT_VERSION = '2';
 
 export const BLOCKLET_LAUNCHER_URL = 'https://launcher.arcblock.io/';
 
+export const DEBOS_BLOCKLET_DID = 'z8iZzXUyiJYiDZP3nhMVMN3eeXnZZ6dokUk2B';
+
 export const BLOCKLET_PROXY_PATH_PREFIX = '/.blocklet/proxy';
 export const BLOCKLET_SITE_GROUP_SUFFIX = '.blocklet-domain-group';
 

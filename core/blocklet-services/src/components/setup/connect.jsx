@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import noop from 'lodash/noop';
 import { joinURL } from 'ufo';
@@ -19,6 +19,12 @@ export default function Connect({ children, skipBindAccount = false }) {
   const { t, locale } = useLocaleContext();
   const { api, session } = useSessionContext();
   const { encryptKey, decrypt } = useSecurity();
+  const [setupTokenHydration, setSetupTokenHydration] = useState('idle');
+
+  const hasStartupSetupToken = useMemo(() => {
+    const url = new URL(window.location.href);
+    return url.searchParams.get('__start__') === '1' && !!url.searchParams.get('setupToken');
+  }, []);
 
   const shouldBindAccount = useMemo(() => {
     if (skipBindAccount) {
@@ -46,6 +52,38 @@ export default function Connect({ children, skipBindAccount = false }) {
     return data;
   }, [shouldBindAccount]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateSetupToken() {
+      setSetupTokenHydration('loading');
+      try {
+        await session.refresh({ showProgress: false });
+      } catch (error) {
+        // If the setup token is stale or invalid, fall back to the DID/passkey pre-setup flow below.
+        console.warn('Failed to hydrate setup token before setup connect', error); // eslint-disable-line no-console
+      } finally {
+        if (!cancelled) {
+          setSetupTokenHydration('done');
+        }
+      }
+    }
+
+    if (
+      !skipBindAccount &&
+      hasStartupSetupToken &&
+      !session.user &&
+      !session.loading &&
+      setupTokenHydration === 'idle'
+    ) {
+      hydrateSetupToken();
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasStartupSetupToken, session.loading, session.user, setupTokenHydration, skipBindAccount]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const onConnect = async (results) => {
     const result = Array.isArray(results) ? results.find((x) => x.sessionToken) : results;
     if (result.sessionToken) {
@@ -58,7 +96,10 @@ export default function Connect({ children, skipBindAccount = false }) {
     }
   };
 
-  if (!shouldBindAccount && (!state.value || state.loading || session.loading)) {
+  const waitingForStartupSetupToken =
+    hasStartupSetupToken && !session.user && ['idle', 'loading'].includes(setupTokenHydration);
+
+  if (!shouldBindAccount && (waitingForStartupSetupToken || !state.value || state.loading || session.loading)) {
     return (
       <Center relative="parent">
         <CircularProgress />

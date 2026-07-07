@@ -37,13 +37,19 @@ const {
   BLOCKLET_CONFIGURABLE_KEY,
   BLOCKLET_TENANT_MODES,
   BUILTIN_PROVIDER_PUBLIC_FIELDS,
+  LOGIN_PROVIDER,
   OAUTH_PROVIDER_PUBLIC_FIELDS,
 } = require('@blocklet/constant');
 const { getBlockletInfo } = require('@blocklet/meta/lib/info');
 const { isPreferenceKey, findComponentById, findComponentByIdV2, getMountPoints } = require('@blocklet/meta/lib/util');
 const { getConfigs } = require('@blocklet/meta/lib/util-config');
 const { getBlockletLanguages } = require('@blocklet/env/lib/util');
-const { SESSION_CACHE_TTL, SESSION_TTL, WELLKNOWN_SERVICE_PATH_PREFIX } = require('@abtnode/constant');
+const {
+  DEBOS_BLOCKLET_DID,
+  SESSION_CACHE_TTL,
+  SESSION_TTL,
+  WELLKNOWN_SERVICE_PATH_PREFIX,
+} = require('@abtnode/constant');
 const { getEmailServiceProvider } = require('@abtnode/auth/lib/email');
 const { withTrailingSlash } = require('ufo');
 const { onUploadComponent } = require('@abtnode/util/lib/upload-component');
@@ -60,6 +66,53 @@ const logger = require('@abtnode/logger')(require('../../package.json').name);
 const { wallet } = require('../libs/auth');
 const { getBlockletNavigation } = require('../util/navigation');
 const mutateBlockletPermission = require('../middlewares/mutate-blocklet-permission');
+
+const getEnvironmentValue = (blocklet, key) =>
+  blocklet?.environmentObj?.[key] || (blocklet?.environments || []).find(item => item.key === key)?.value;
+
+const isDebosBlocklet = ({ blocklet, component, componentId }) => {
+  const dids = [
+    blocklet?.did,
+    blocklet?.appDid,
+    blocklet?.appPid,
+    blocklet?.meta?.did,
+    component?.did,
+    component?.appDid,
+    component?.appPid,
+    component?.meta?.did,
+    getEnvironmentValue(blocklet, 'BLOCKLET_COMPONENT_DID'),
+    ...String(componentId || '')
+      .split('/')
+      .filter(Boolean),
+    ...(blocklet?.componentMountPoints || []).map(item => item.did),
+    ...(blocklet?.children || []).map(item => item?.meta?.did || item?.did),
+  ].filter(Boolean);
+
+  try {
+    dids.push(...(getMountPoints(blocklet) || []).map(item => item?.did || item?.meta?.did).filter(Boolean));
+  } catch (err) {
+    logger.debug('Failed to inspect blocklet mount points for DeBOS auth metadata', { err });
+  }
+
+  return dids.includes(DEBOS_BLOCKLET_DID);
+};
+
+const withDebosGoogleAuthentication = (authentication, { blocklet, component, componentId }) => {
+  if (!isDebosBlocklet({ blocklet, component, componentId })) {
+    return authentication;
+  }
+
+  const providers = Object.values(authentication || {});
+  const maxOrder = providers.reduce((max, item) => Math.max(max, Number.isFinite(item?.order) ? item.order : -1), -1);
+  return {
+    ...authentication,
+    [LOGIN_PROVIDER.GOOGLE]: {
+      enabled: true,
+      order: authentication?.[LOGIN_PROVIDER.GOOGLE]?.order ?? maxOrder + 1,
+      type: 'oauth',
+    },
+  };
+};
 
 const getLogoKey = type => {
   if (type === 'favicon') {
@@ -485,10 +538,11 @@ module.exports = {
         const org = blocklet.settings?.org || { enabled: false };
         const isEmailServiceEnabled = Boolean(getEmailServiceProvider(blocklet));
 
-        const authentication = pick(
+        let authentication = pick(
           omitBy(blocklet.settings?.authentication || {}, x => x.enabled !== true),
           [...OAUTH_PROVIDER_PUBLIC_FIELDS, ...BUILTIN_PROVIDER_PUBLIC_FIELDS]
         );
+        authentication = withDebosGoogleAuthentication(authentication, { blocklet, component, componentId });
         const didConnect = blocklet.settings?.didConnect ?? {
           showDidColor: true,
           showAppInfo: true,

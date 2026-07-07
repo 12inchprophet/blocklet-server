@@ -29,11 +29,18 @@ module.exports = {
         info.routing?.adminPath || '/'
       );
       const isSessionHardeningEnabled = blocklet?.settings?.enableSessionHardening;
+      const componentId =
+        req.headers['x-blocklet-component-id'] ||
+        blocklet?.environmentObj?.BLOCKLET_COMPONENT_DID ||
+        blocklet?.environments?.find((x) => x.key === 'BLOCKLET_COMPONENT_DID')?.value ||
+        '';
+      const debosGoogleBrokerUrl = process.env.DEBOS_GOOGLE_BROKER_URL || serverEndpoint;
 
       res.send(`window.env = {
   did: "${blockletInfo.did}",
   appId: "${blocklet.appDid}",
   appName: "${blockletInfo.name}",
+  componentId: ${JSON.stringify(componentId)},
   pathPrefix: "${pathPrefix}",
   apiPrefix: "${pathPrefix.replace(/\/+$/, '')}${WELLKNOWN_SERVICE_PATH_PREFIX}",
   ${groupPathPrefix ? `groupPathPrefix: "${groupPathPrefix}",` : ''}
@@ -47,6 +54,9 @@ module.exports = {
   serverVersion: "${info.version}",
   mode: "${info.mode}",
   enableSessionHardening: ${isSessionHardeningEnabled || false},
+  debosGoogleLogin: {
+    brokerUrl: ${JSON.stringify(debosGoogleBrokerUrl)},
+  },
   ownerNft: ${JSON.stringify(info.ownerNft || '')},
   launcher: ${JSON.stringify(info.launcher || '')},
   maxUploadFileSize: ${Number(info.routing?.maxUploadFileSize) || MAX_UPLOAD_FILE_SIZE},

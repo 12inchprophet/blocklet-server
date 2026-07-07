@@ -66,6 +66,8 @@ core/webapp/cypress/downloads/downloads.html
 .turbo
 **/.turbo
 
+.deploy-artifacts/
+
 pnpm-lock.yaml
 stats.html
 .claude/settings.local.json

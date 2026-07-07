@@ -40,6 +40,7 @@ const {
   PASSPORT_SOURCE,
   PASSPORT_LOG_ACTION,
   PASSPORT_ISSUE_ACTION,
+  DEBOS_BLOCKLET_DID,
 } = require('@abtnode/constant');
 const parseBooleanString = require('@abtnode/util/lib/parse-boolean-string');
 const { getDeviceData } = require('@abtnode/util/lib/device');
@@ -658,6 +659,9 @@ const getLaunchBlockletClaims = (node, authMethod) => {
   return claims;
 };
 
+const canApprovedUserLaunchBlocklet = ({ authMethod, user, blocklet }) =>
+  authMethod === 'session' && user?.approved === true && blocklet?.meta?.did === DEBOS_BLOCKLET_DID;
+
 const ensureBlockletPermission = async ({
   authMethod,
   node,
@@ -713,7 +717,8 @@ const ensureBlockletPermission = async ({
 
   const { teamDid, role } = result;
   const permissions = await node.getPermissionsByRole({ teamDid, role: { name: role } });
-  if (!permissions.some((item) => ['mutate_blocklets'].includes(item.name))) {
+  const hasPermission = permissions.some((item) => ['mutate_blocklets'].includes(item.name));
+  if (!hasPermission && !canApprovedUserLaunchBlocklet({ authMethod, user: result.user, blocklet })) {
     throw new CustomError(403, messages.notAuthorized[locale]);
   }
 
@@ -947,7 +952,19 @@ const getBlockletPermissionChecker =
     }
 
     const passport = (user.passports || []).find((x) => x.status === 'valid' && allowedRoles.includes(x.role));
-    if (!passport) {
+    let allowedBlocklet;
+    if (!passport && extraParams.blockletMetaUrl) {
+      try {
+        allowedBlocklet = await node.getBlockletMetaFromUrl({ url: extraParams.blockletMetaUrl, checkPrice: true });
+      } catch (error) {
+        logger.warn('failed to fetch blocklet metadata for launch permission check', {
+          blockletMetaUrl: extraParams.blockletMetaUrl,
+          error,
+        });
+      }
+    }
+
+    if (!passport && !canApprovedUserLaunchBlocklet({ authMethod: 'session', user, blocklet: allowedBlocklet })) {
       throw new CustomError(
         403,
         {

@@ -14,6 +14,7 @@ const initJwt = require('../../libs/jwt');
 const initAuth = require('../../libs/connect/v1');
 
 const createLoginRoutes = require('./connect/login');
+const createLoginDebosLaunchRoutes = require('./connect/login-debos-launch');
 const createBindWallerRoutes = require('./connect/bind-wallet');
 const createInviteRoutes = require('./connect/invite');
 const createIssuePassportAuth = require('./connect/issue-passport');
@@ -41,6 +42,7 @@ const createSessionRoutes = require('./session');
 const createPassportRoutes = require('./passport');
 const createPasskeyRoutes = require('./passkey');
 const createGenAccessKeyRoutes = require('./connect/gen-access-key');
+const createDebosGoogleLoginRoutes = require('./debos-google-login');
 
 const { getRedirectUrl, shouldIgnoreUrl, redirectWithoutCache } = require('../../util');
 const { createConnectToDidSpacesForUserRoute } = require('./connect/connect-to-did-spaces-for-user');
@@ -227,6 +229,7 @@ const init = ({ node, options }) => {
   routes.attachDidAuthHandlers = (app) => {
     handlers.forEach((handler) => {
       handler.attach(Object.assign({ app }, createLoginRoutes(node, authenticator, createSessionToken)));
+      handler.attach(Object.assign({ app }, createLoginDebosLaunchRoutes(node, authenticator, createSessionToken)));
       handler.attach(Object.assign({ app }, createBindWallerRoutes(node, authenticator, createSessionToken)));
       handler.attach(Object.assign({ app }, createConnectToDidSpacesRoute(node, authenticator, createSessionToken)));
       handler.attach(
@@ -275,6 +278,8 @@ const init = ({ node, options }) => {
   };
   routes.createCommonRoutes = {
     init: (router) => {
+      createDebosGoogleLoginRoutes.init(router, node, createSessionToken, options);
+
       router.get(`${WELLKNOWN_SERVICE_PATH_PREFIX}/redirect-with-login`, async (req, res) => {
         if (req.query.setupToken) {
           await req

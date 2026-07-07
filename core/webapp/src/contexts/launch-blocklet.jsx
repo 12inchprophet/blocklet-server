@@ -50,7 +50,7 @@ function LaunchBlockletProvider({ children }) {
   });
   const setAppDid = (appDid, sessionId) => setState(x => ({ ...x, appDid, sessionId }));
 
-  const isAuthorized = authorize({ user: session.user, launchType, nftId });
+  const isAuthorized = authorize({ user: session.user, launchType, nftId, blockletDid: state.meta?.did });
 
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
