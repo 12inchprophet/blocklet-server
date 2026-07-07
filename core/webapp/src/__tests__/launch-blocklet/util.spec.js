@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { DEBOS_BLOCKLET_DID } from '@abtnode/constant';
 import { authorize } from '../../components/launch-blocklet/util';
 
 describe('launch-blocklet', () => {
@@ -39,6 +40,13 @@ describe('launch-blocklet', () => {
         expect(authorize({ user: { permissions: ['query_blocklets'] } })).toBe(false);
         expect(authorize({ user: { permissions: [] } })).toBe(false);
         expect(authorize({ user: {} })).toBe(false);
+      });
+
+      test('should authorize an authenticated user for DeBOS only', () => {
+        expect(authorize({ user: { approved: true, permissions: [] }, blockletDid: DEBOS_BLOCKLET_DID })).toBe(true);
+        expect(authorize({ user: { approved: true, permissions: [] }, blockletDid: 'z8iOtherBlocklet' })).toBe(false);
+        expect(authorize({ user: { approved: false, permissions: [] }, blockletDid: DEBOS_BLOCKLET_DID })).toBe(false);
+        expect(authorize({ user: null, blockletDid: DEBOS_BLOCKLET_DID })).toBe(false);
       });
     });
   });

@@ -1,18 +1,17 @@
 const { handleInvitationReceive, getApplicationInfo } = require('@abtnode/auth/lib/auth');
 const { createPassportList, createPassportSwitcher } = require('@abtnode/auth/lib/oauth');
-const { WELLKNOWN_SERVICE_PATH_PREFIX } = require('@abtnode/constant');
+const { DEBOS_BLOCKLET_DID, WELLKNOWN_SERVICE_PATH_PREFIX } = require('@abtnode/constant');
 const { extractUserAvatar, getUserAvatarUrl } = require('@abtnode/util/lib/user');
 const { fromAppDid } = require('@arcblock/did-ext');
 const pick = require('lodash/pick');
 const cloneDeep = require('@abtnode/util/lib/deep-clone');
-const { joinURL } = require('ufo');
+const { joinURL, withHttps, withQuery, withTrailingSlash } = require('ufo');
 const { upsertToPassports } = require('@abtnode/auth/lib/passport');
 const { getWalletDid, getConnectedAccounts, getSourceProvider } = require('@blocklet/meta/lib/did-utils');
 const formatContext = require('@abtnode/util/lib/format-context');
 const createTranslator = require('@abtnode/util/lib/translate');
 const { CustomError } = require('@blocklet/error');
 const { LOGIN_PROVIDER, OAUTH_PROVIDER_PUBLIC_FIELDS } = require('@blocklet/constant');
-const { withHttps, withTrailingSlash } = require('ufo');
 const { getLastUsedPassport } = require('@abtnode/auth/lib/passport');
 const { getAvatarByEmail, getAvatarByUrl } = require('@abtnode/util/lib/user');
 const { transferPassport } = require('@abtnode/auth/lib/util/transfer-passport');
@@ -35,11 +34,46 @@ const federatedUtil = require('../../util/federated');
 const userUtil = require('../../util/user-util');
 const { isOAuthEmailVerified, isEmailUniqueRequired, isEmailKycRequired, isSameEmail } = require('../../libs/kyc');
 const checkUser = require('../../middlewares/check-user');
+const { exchangeDebosGoogleLoginGrant } = require('../../services/auth/debos-google-login');
 
 const PREFIX = WELLKNOWN_SERVICE_PATH_PREFIX;
 
 const prefix = `${PREFIX}/oauth`;
 const prefixApi = `${PREFIX}/api/oauth`;
+
+const getRequestOrigin = (req) => {
+  const protocol = (req.get('x-forwarded-proto') || req.protocol).split(',')[0].trim();
+  const host = (req.get('x-forwarded-host') || req.get('host')).split(',')[0].trim();
+  return `${protocol}://${host}`;
+};
+
+const getEnvironmentValue = (blocklet, key) =>
+  blocklet?.environmentObj?.[key] || (blocklet?.environments || []).find((item) => item.key === key)?.value;
+
+const isDebosBlocklet = (blocklet) => {
+  const dids = [
+    blocklet?.did,
+    blocklet?.appDid,
+    blocklet?.appPid,
+    blocklet?.meta?.did,
+    blocklet?.environmentObj?.BLOCKLET_COMPONENT_DID,
+    getEnvironmentValue(blocklet, 'BLOCKLET_COMPONENT_DID'),
+    ...(blocklet?.componentMountPoints || []).map((item) => item.did),
+    ...(blocklet?.children || []).map((item) => item?.meta?.did || item?.did),
+  ].filter(Boolean);
+
+  return dids.includes(DEBOS_BLOCKLET_DID);
+};
+
+const getDebosGoogleBrokerUrl = () => process.env.DEBOS_GOOGLE_BROKER_URL?.replace(/\/+$/, '');
+
+const getDebosBlockletAppDid = (blocklet) =>
+  blocklet?.appPid || blocklet?.appDid || blocklet?.did || blocklet?.meta?.did;
+
+const canUseDebosGoogleBroker = (blocklet) =>
+  isDebosBlocklet(blocklet) && Boolean(getDebosGoogleBrokerUrl() && getDebosBlockletAppDid(blocklet));
+
+const getDebosGoogleCallbackUrl = (req) => joinURL(getRequestOrigin(req), prefix, '/callback', LOGIN_PROVIDER.GOOGLE);
 
 const translations = {
   zh: {
@@ -674,6 +708,20 @@ module.exports = {
       }
 
       try {
+        const blocklet = await req.getBlocklet();
+        if (action === 'login' && req.body.provider === LOGIN_PROVIDER.GOOGLE && canUseDebosGoogleBroker(blocklet)) {
+          const result = await exchangeDebosGoogleLoginGrant({
+            req,
+            node,
+            createSessionToken,
+            grantToken: req.body.code,
+            visitorId: req.body.visitorId,
+            locale: req.body.locale,
+          });
+          res.send(result);
+          return;
+        }
+
         const result = await actionMap[action](req, node, options);
         res.send(result);
       } catch (err) {
@@ -732,6 +780,21 @@ module.exports = {
     router.get(`${prefix}/login/:provider`, checkReferrerMiddleware(), async (req, res) => {
       const { provider } = req.params;
       const blocklet = await req.getBlocklet();
+      if (provider === LOGIN_PROVIDER.GOOGLE && canUseDebosGoogleBroker(blocklet)) {
+        const referrer = req.get('referrer');
+        const appDid = getDebosBlockletAppDid(blocklet);
+        const authUrl = withQuery(joinURL(getDebosGoogleBrokerUrl(), '/oauth/debos-login/google'), {
+          appDid,
+          redirect: req.query.redirect || '/',
+          locale: req.query.locale || 'en',
+          oauthPopup: '1',
+          oauthCallbackUrl: getDebosGoogleCallbackUrl(req),
+          oauthState: new URL(referrer).origin,
+        });
+        redirectWithoutCache(res, authUrl);
+        return;
+      }
+
       const availableProviderList = Object.keys(blocklet.settings?.authentication).filter(
         (x) =>
           blocklet.settings?.authentication[x]?.enabled === true &&

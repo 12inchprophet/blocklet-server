@@ -2,6 +2,7 @@ const { test, expect, describe, beforeEach, mock, spyOn } = require('bun:test');
 const axios = require('@abtnode/util/lib/axios');
 const { fromRandom, WalletType } = require('@ocap/wallet');
 const { types } = require('@ocap/mcrypto');
+const { DEBOS_BLOCKLET_DID } = require('@abtnode/constant');
 const lib = require('../lib/auth');
 const {
   getKeyPairClaim,
@@ -133,6 +134,37 @@ describe('server', () => {
       const checkFn = getBlockletPermissionChecker(node);
       const result = await checkFn({ userDid: 'a', extraParams: { connectedDid: 'a' } });
       expect(result).toBeUndefined();
+    });
+
+    test('should allow an approved guest to launch DeBOS', async () => {
+      const getBlockletMetaFromUrl = mock().mockResolvedValue({ meta: { did: DEBOS_BLOCKLET_DID } });
+      const node = {
+        getNodeInfo: () => ({ did: 'server01' }),
+        getUser: () => ({ passports: [], approved: true }),
+        getBlockletMetaFromUrl,
+      };
+
+      const checkFn = getBlockletPermissionChecker(node);
+      await expect(
+        checkFn({ userDid: 'a', extraParams: { blockletMetaUrl: 'https://example.com/debos/blocklet.json' } })
+      ).resolves.toBeUndefined();
+      expect(getBlockletMetaFromUrl).toHaveBeenCalledWith({
+        url: 'https://example.com/debos/blocklet.json',
+        checkPrice: true,
+      });
+    });
+
+    test('should reject an approved guest launching another blocklet', async () => {
+      const node = {
+        getNodeInfo: () => ({ did: 'server01' }),
+        getUser: () => ({ passports: [], approved: true }),
+        getBlockletMetaFromUrl: () => ({ meta: { did: 'z8iOtherBlocklet' } }),
+      };
+
+      const checkFn = getBlockletPermissionChecker(node);
+      await expect(
+        checkFn({ userDid: 'a', extraParams: { blockletMetaUrl: 'https://example.com/other/blocklet.json' } })
+      ).rejects.toThrow('permission');
     });
   });
 
@@ -276,6 +308,50 @@ describe('server', () => {
       expect(node.setupAppOwner).not.toHaveBeenCalled();
       expect(params.updateSession).toHaveBeenCalledWith({ appDid: appWallet.address, sessionId: 'sessionId' });
       expect(params.updateSession).toHaveBeenCalledWith({ isInstalled: true });
+    });
+
+    test('should install DeBOS for an approved guest session', async () => {
+      const installBlocklet = mock();
+      const guestNode = {
+        ...node,
+        getUser: () => ({ approved: true, passports: [] }),
+        getBlockletMetaFromUrl: () => ({ meta: { did: DEBOS_BLOCKLET_DID }, isFree: true }),
+        getPermissionsByRole: () => [],
+        getBlocklet: () => null,
+        installBlocklet,
+        setupAppOwner: mock().mockResolvedValue({ setupToken: 'test-setup-token' }),
+      };
+      const handler = createLaunchBlockletHandler(guestNode, 'session');
+
+      await handler({
+        ...params,
+        updateSession: mock(),
+        extraParams: { locale: 'en', blockletMetaUrl: 'https://example.com/debos/blocklet.json' },
+      });
+
+      expect(installBlocklet).toHaveBeenCalledTimes(1);
+    });
+
+    test('should reject another blocklet for an approved guest session', async () => {
+      const installBlocklet = mock();
+      const guestNode = {
+        ...node,
+        getUser: () => ({ approved: true, passports: [] }),
+        getBlockletMetaFromUrl: () => ({ meta: { did: 'z8iOtherBlocklet' }, isFree: true }),
+        getPermissionsByRole: () => [],
+        getBlocklet: () => null,
+        installBlocklet,
+      };
+      const handler = createLaunchBlockletHandler(guestNode, 'session');
+
+      await expect(
+        handler({
+          ...params,
+          updateSession: mock(),
+          extraParams: { locale: 'en', blockletMetaUrl: 'https://example.com/other/blocklet.json' },
+        })
+      ).rejects.toThrow('permission');
+      expect(installBlocklet).not.toHaveBeenCalled();
     });
   });
 

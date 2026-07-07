@@ -28,7 +28,10 @@ async function getUser(node, did) {
   return null;
 }
 
-const createSessionToken = (did, { secret, passport, role, fullName, elevated = false } = {}) => {
+const createSessionToken = (
+  did,
+  { secret, passport, role, fullName, elevated = false, provider, purpose, launchBlockletDid } = {}
+) => {
   return createAuthToken({
     did,
     passport,
@@ -37,10 +40,13 @@ const createSessionToken = (did, { secret, passport, role, fullName, elevated = 
     secret,
     expiresIn: cacheTtl,
     elevated,
+    provider,
+    purpose,
+    launchBlockletDid,
   });
 };
 
-const createRefreshToken = (did, { secret, passport, role, fullName } = {}) => {
+const createRefreshToken = (did, { secret, passport, role, fullName, provider, purpose, launchBlockletDid } = {}) => {
   return createAuthToken({
     did,
     passport,
@@ -48,13 +54,28 @@ const createRefreshToken = (did, { secret, passport, role, fullName } = {}) => {
     fullName,
     secret,
     expiresIn: ttl,
+    provider,
+    purpose,
+    launchBlockletDid,
   });
 };
 
-const createToken = (did, { secret, passport, role, fullName, elevated = false } = {}) => {
+const createToken = (
+  did,
+  { secret, passport, role, fullName, elevated = false, provider, purpose, launchBlockletDid } = {}
+) => {
   return {
-    sessionToken: createSessionToken(did, { secret, passport, role, fullName, elevated }),
-    refreshToken: createRefreshToken(did, { secret, passport, role, fullName }),
+    sessionToken: createSessionToken(did, {
+      secret,
+      passport,
+      role,
+      fullName,
+      elevated,
+      provider,
+      purpose,
+      launchBlockletDid,
+    }),
+    refreshToken: createRefreshToken(did, { secret, passport, role, fullName, provider, purpose, launchBlockletDid }),
   };
 };
 
@@ -104,6 +125,9 @@ const parseUserByDecodedJwtToken = async ({ data = {}, node } = {}) => {
 
   user.elevated = elevated;
   user.role = role;
+  user.provider = data.provider;
+  user.purpose = data.purpose;
+  user.launchBlockletDid = data.launchBlockletDid;
   if (passport) {
     user.passportId = passport.id;
   }

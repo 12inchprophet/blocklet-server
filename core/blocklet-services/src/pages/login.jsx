@@ -4,7 +4,7 @@ import { useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet';
 import { joinURL, withQuery } from 'ufo';
-import { Box, CircularProgress } from '@mui/material';
+import { Box, Button, CircularProgress, Paper, Stack, Typography } from '@mui/material';
 import Center from '@arcblock/ux/lib/Center';
 import useBrowser from '@arcblock/react-hooks/lib/useBrowser';
 import Toast from '@arcblock/ux/lib/Toast';
@@ -12,7 +12,7 @@ import { useLocaleContext } from '@arcblock/ux/lib/Locale/context';
 import { getMaster, getFederatedEnabled } from '@arcblock/ux/lib/Util/federated';
 import usePassportId from '@abtnode/ux/lib/hooks/use-passport-id';
 import { setVisitorId, getVisitorId } from '@arcblock/ux/lib/Util';
-import { WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
+import { DEBOS_BLOCKLET_DID, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
 import { API_DID_PREFIX } from '@arcblock/did-connect-react/lib/constant';
 import { updateConnectedInfo, encodeConnectUrl, getAppId } from '@arcblock/did-connect-react/lib/utils';
 import bridge from '@arcblock/bridge';
@@ -25,6 +25,22 @@ import { debug } from '../libs/logger';
 import { useSessionContext } from '../contexts/session';
 import { setSessionToken, setRefreshToken, setCsrfToken } from '../util';
 import { PassportPaywall } from '../components/paywall';
+
+const getRelativeRedirect = (redirect) => {
+  if (!redirect) {
+    return '/';
+  }
+
+  try {
+    const url = new URL(redirect, window.location.origin);
+    if (url.origin !== window.location.origin) {
+      return '/';
+    }
+    return `${url.pathname}${url.search}${url.hash}` || '/';
+  } catch {
+    return '/';
+  }
+};
 
 export default function UserLogin() {
   const containerRef = useRef(null);
@@ -53,6 +69,21 @@ export default function UserLogin() {
   const autoConnectWebview = searchParams.get('autoConnectWebview');
   const popup = searchParams.get('popup');
   const showQuickConnect = searchParams.get('showQuickConnect');
+  const debosGoogleGrant = searchParams.get('debosGoogleGrant');
+  const isDebosInstance =
+    [
+      window?.blocklet?.componentId,
+      window?.blocklet?.componentDid,
+      window?.env?.componentId,
+      window?.blocklet?.meta?.did,
+      window?.blocklet?.appPid,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).split('/').includes(DEBOS_BLOCKLET_DID)) ||
+    window?.env?.did === DEBOS_BLOCKLET_DID;
+  const debosGoogleBrokerUrl = window?.env?.debosGoogleLogin?.brokerUrl;
+  const canUseDebosGoogleLogin =
+    isDebosInstance && debosGoogleBrokerUrl && !forceConnected && !authenticated && !popup && !sessionToken;
 
   let inviter = searchParams.get('inviter');
   if (!inviter && redirect) {
@@ -273,8 +304,55 @@ export default function UserLogin() {
     window.location.href = targetUrl;
   });
 
+  const startDebosGoogleLogin = useMemoizedFn(() => {
+    const appDid = window?.env?.appId || window?.blocklet?.appPid;
+    if (!appDid) {
+      Toast.error('Unable to determine this DeBOS instance DID');
+      return;
+    }
+
+    const targetUrl = withQuery(joinURL(debosGoogleBrokerUrl, '/oauth/debos-login/google'), {
+      appDid,
+      redirect: getRelativeRedirect(redirect),
+      locale,
+    });
+    window.location.href = getSafeUrlWithToast(targetUrl, { allowDomains: null });
+  });
+
+  const exchangeDebosGoogleGrant = useMemoizedFn(async () => {
+    const response = await fetch(
+      joinURL(window?.env?.apiPrefix || WELLKNOWN_SERVICE_PATH_PREFIX, '/api/debos-google-login/exchange'),
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          grant: debosGoogleGrant,
+          visitorId,
+          locale,
+        }),
+      }
+    );
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.error || result?.message || 'Google login failed');
+    }
+
+    const currentUrl = new URL(window.location.href);
+    currentUrl.searchParams.delete('debosGoogleGrant');
+    window.history.replaceState(null, '', currentUrl.toString());
+
+    await onLogin(result, (v) => v);
+  });
+
   useMount(() => {
-    if (searchParams.get('sessionToken')) {
+    if (debosGoogleGrant) {
+      exchangeDebosGoogleGrant().catch((err) => {
+        Toast.error(err.message || 'Google login failed');
+      });
+    } else if (searchParams.get('sessionToken')) {
       const vid = searchParams.get('visitorId');
       if (!vid) {
         Toast.error('Unexpected login response from server: visitorId is required');
@@ -291,7 +369,9 @@ export default function UserLogin() {
         (v) => v
       );
     } else if (!session.user || (forceConnected && session.user.did !== forceConnected)) {
-      gotoLogin();
+      if (!canUseDebosGoogleLogin) {
+        gotoLogin();
+      }
     } else if (!authenticated && !searchParams.get('sessionToken')) {
       redirectAfterLogin();
     }
@@ -330,13 +410,40 @@ export default function UserLogin() {
           height: '100vh',
           position: 'relative',
           display: 'flex',
+          'align-items': canUseDebosGoogleLogin ? 'center' : 'stretch',
+          'justify-content': canUseDebosGoogleLogin ? 'center' : 'flex-start',
           'flex-direction': 'column',
+          p: canUseDebosGoogleLogin ? 2 : 0,
+          bgcolor: canUseDebosGoogleLogin ? '#f7faf9' : 'transparent',
           '.connect': {
             background: '#fafafa',
           },
         }}
-        ref={containerRef}
-      />
+        ref={containerRef}>
+        {canUseDebosGoogleLogin && (
+          <Paper elevation={0} sx={{ width: '100%', maxWidth: 420, p: 4, border: '1px solid', borderColor: 'divider' }}>
+            <Stack spacing={3}>
+              <Box>
+                <Typography variant="h5" fontWeight={700}>
+                  Sign in to {window?.env?.appName || 'DeBOS'}
+                </Typography>
+                <Typography color="text.secondary" sx={{ mt: 1 }}>
+                  Continue with the Google account that owns this DeBOS instance.
+                </Typography>
+              </Box>
+
+              <Stack spacing={1.5}>
+                <Button size="large" variant="contained" onClick={startDebosGoogleLogin}>
+                  Continue with Google
+                </Button>
+                <Button size="large" variant="outlined" onClick={gotoLogin}>
+                  Use DID Wallet or Passkey
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
+        )}
+      </Box>
     </>
   );
 }

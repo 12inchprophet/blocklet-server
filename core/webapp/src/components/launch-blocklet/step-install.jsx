@@ -10,10 +10,11 @@ import getSafeUrlWithToast from '@abtnode/ux/lib/util/get-safe-url';
 import Connect, { useSecurity } from '@arcblock/did-connect-react/lib/Connect';
 import AnimationWaiter from '@arcblock/ux/lib/AnimationWaiter';
 import Center from '@arcblock/ux/lib/Center';
+import ProviderIcon from '@arcblock/ux/lib/DIDConnect/provider-icon';
 import { useLocaleContext } from '@arcblock/ux/lib/Locale/context';
 import Toast from '@arcblock/ux/lib/Toast';
 import { BlockletEvents } from '@blocklet/constant';
-import { LOGIN_PROVIDER } from '@arcblock/ux/lib/Util/constant';
+import { LOGIN_PROVIDER, LOGIN_PROVIDER_NAME } from '@arcblock/ux/lib/Util/constant';
 import LauncherResultMessage from '@blocklet/launcher-layout/lib/launch-result-message';
 import PageHeader from '@blocklet/launcher-layout/lib/page-header';
 import ProgressMessage from '@blocklet/launcher-ux/lib/progress-message';
@@ -21,11 +22,20 @@ import { titleSchema } from '@blocklet/meta/lib/schema';
 import { getDisplayName, hasStartEngine } from '@blocklet/meta/lib/util';
 import styled from '@emotion/styled';
 import ArrowForward from '@mui/icons-material/ArrowForward';
-import { useTheme, CircularProgress as Spinner, Link as ExternalLink, Box, Alert, Typography } from '@mui/material';
+import {
+  useTheme,
+  CircularProgress as Spinner,
+  Link as ExternalLink,
+  Box,
+  Alert,
+  Typography,
+  Button as MuiButton,
+} from '@mui/material';
 import { useCreation, useMemoizedFn } from 'ahooks';
 import Debug from 'debug';
 import isEmpty from 'lodash/isEmpty';
 import isEqual from 'lodash/isEqual';
+import PropTypes from 'prop-types';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import useLocalStorage from 'react-use/lib/useLocalStorage';
@@ -33,14 +43,21 @@ import useSetState from 'react-use/lib/useSetState';
 import { joinURL, withQuery } from 'ufo';
 
 // eslint-disable-next-line import/no-unresolved
-import { BLOCKLET_INSTALL_TYPE, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
+import { BLOCKLET_INSTALL_TYPE, DEBOS_BLOCKLET_DID, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
 import serverLogo from '../../assets/logo.svg';
 import { useLaunchBlockletContext } from '../../contexts/launch-blocklet';
 import { useNodeContext } from '../../contexts/node';
 import useRuntimeBlockletState from '../../contexts/runtime-blocklet-state';
 import { useSessionContext } from '../../contexts/session';
 import useQuery from '../../hooks/query';
-import { formatError, getAccessibleUrl, getWebWalletUrl, isNewStoreUrl, setSessionToken } from '../../libs/util';
+import {
+  formatError,
+  getAccessibleUrl,
+  getWebWalletUrl,
+  isNewStoreUrl,
+  setRefreshToken,
+  setSessionToken,
+} from '../../libs/util';
 import AppLogo from './app-logo';
 import Button from './button';
 import DownloadBundleProgress from './download-progress';
@@ -62,6 +79,124 @@ const getAuthDialogDescription = (isFree, authMethod, t) => {
 
 const SETUP_TOKEN_KEY = '__temp_setup_token';
 const VISITOR_ID_KEY = '__temp_visitor_id';
+const CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN = 'debos-launch-login';
+
+function DebosGoogleLogin({ extraParams, onSuccess }) {
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const configUrl = joinURL(window?.env?.apiPrefix ?? '/', '/api/oauth/debos-launch/config');
+
+    axios
+      .get(configUrl)
+      .then(({ data }) => {
+        if (mounted) {
+          setEnabled(data?.google?.enabled === true);
+        }
+      })
+      .catch(error => {
+        debug('Failed to load Google OAuth config for DeBOS launch', error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    try {
+      const startUrl = joinURL(window.location.origin, window?.env?.apiPrefix ?? '/', '/oauth/debos-launch/google');
+      const oauthResult = await new Promise((resolve, reject) => {
+        let closeTimer;
+        let timeout;
+
+        const cleanup = handleMessage => {
+          window.removeEventListener('message', handleMessage);
+          clearInterval(closeTimer);
+          clearTimeout(timeout);
+        };
+        const handleMessage = event => {
+          if (event.origin !== window.location.origin || event.data?.type !== 'debos-google-oauth') {
+            return;
+          }
+          cleanup(handleMessage);
+          if (event.data.error || !event.data.code || !event.data.state) {
+            reject(new Error(event.data.error || 'Google sign-in did not complete'));
+            return;
+          }
+          resolve(event.data);
+        };
+
+        window.addEventListener('message', handleMessage);
+        const popup = window.open(startUrl, 'debos-google-oauth', 'popup,width=500,height=700');
+        if (!popup) {
+          cleanup(handleMessage);
+          reject(new Error('Please allow the Google sign-in popup'));
+          return;
+        }
+
+        closeTimer = setInterval(() => {
+          if (popup.closed) {
+            cleanup(handleMessage);
+            reject(new Error('Google sign-in was cancelled'));
+          }
+        }, 500);
+        timeout = setTimeout(
+          () => {
+            popup.close();
+            cleanup(handleMessage);
+            reject(new Error('Google sign-in timed out'));
+          },
+          5 * 60 * 1000
+        );
+      });
+
+      const loginUrl = joinURL(window?.env?.apiPrefix ?? '/', '/api/oauth/debos-launch/login');
+      const { data } = await axios.post(loginUrl, {
+        ...extraParams,
+        code: oauthResult.code,
+        state: oauthResult.state,
+      });
+      if (data?.sessionToken) {
+        await onSuccess({ ...data, encrypted: false });
+      }
+    } catch (error) {
+      Toast.error(formatError(error), { autoHideDuration: 5000 });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!enabled) {
+    return null;
+  }
+
+  return (
+    <MuiButton
+      fullWidth
+      variant="outlined"
+      disabled={loading}
+      onClick={handleGoogleLogin}
+      startIcon={
+        loading ? (
+          <Spinner size={18} />
+        ) : (
+          <ProviderIcon provider={LOGIN_PROVIDER.GOOGLE} sx={{ width: 22, height: 22 }} />
+        )
+      }
+      sx={{ justifyContent: 'flex-start', px: 2, py: 1.25, textTransform: 'none' }}>
+      {`Continue with ${LOGIN_PROVIDER_NAME[LOGIN_PROVIDER.GOOGLE] || 'Google'}`}
+    </MuiButton>
+  );
+}
+
+DebosGoogleLogin.propTypes = {
+  extraParams: PropTypes.object.isRequired,
+  onSuccess: PropTypes.func.isRequired,
+};
 
 // FIXME: @zhenqiang 这个文件里面的 url 拼接感觉比较乱，后续不好维护，我们需要梳理下
 
@@ -123,12 +258,14 @@ export default function Install() {
     },
   });
 
-  const isAuthorized = authorize({ user: session.user, launchType, nftId });
+  const isAuthorized = authorize({ user: session.user, launchType, nftId, blockletDid: meta?.did });
 
   const authMethod = getServerAuthMethod(info, launchType, launcherSessionId, isAuthorized);
   const launchWithoutWallet = launcherSessionId && launcherSession && !launcherSession.walletDid;
 
   const isFromLauncher = useCreation(() => from === 'launcher', [from]);
+  const isDebosBlocklet = meta?.did === DEBOS_BLOCKLET_DID;
+  const needsDebosLaunchLogin = isDebosBlocklet && !session.user && !isFromLauncher;
 
   const installType = useMemo(() => {
     if (isEmptyBlocklet) {
@@ -152,6 +289,7 @@ export default function Install() {
     return hasWallet;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.user]);
+  const shouldLaunchDebosWithoutWallet = isDebosBlocklet && session.user && !existWalletAccount && !isFromLauncher;
 
   const runtimeBlockletState = useRuntimeBlockletState(isAuthorized ? appDid : '');
   const { status, eventName } = runtimeBlockletState;
@@ -184,6 +322,27 @@ export default function Install() {
     Toast.success(t('launchBlocklet.dialog.success'));
 
     const result = Array.isArray(results) ? results[results.length - 1] : results;
+
+    if (state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN) {
+      if (result.sessionToken) {
+        setSessionToken(
+          result.sessionToken.split('.').length === 3 ? result.sessionToken : decrypt(result.sessionToken)
+        );
+      }
+      if (result.refreshToken) {
+        setRefreshToken(
+          result.refreshToken.split('.').length === 3 ? result.refreshToken : decrypt(result.refreshToken)
+        );
+      }
+      if (result.visitorId) {
+        sessionStorage.setItem(VISITOR_ID_KEY, result.visitorId);
+      }
+
+      await session.refresh();
+      setState({ isConnectOpen: false, launching: false });
+      window.location.reload();
+      return;
+    }
 
     if (result.sessionToken) {
       // 如果 sessionToken 是三段式 JWT Token，则直接使用，否则使用 decrypt 解密
@@ -249,6 +408,23 @@ export default function Install() {
     }
   };
 
+  const openDebosLaunchLogin = useMemoizedFn(() => {
+    setState({
+      isConnectOpen: true,
+      launching: false,
+      connectData: {
+        type: CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN,
+        action: 'login-debos-launch',
+        baseUrl: '',
+        checkFn: axios.create({ baseURL: window?.env?.apiPrefix ?? '/' }).get,
+        extraParams: {
+          blockletMetaUrl,
+          locale,
+        },
+      },
+    });
+  });
+
   const handleLaunchStart = async () => {
     debug('handleLaunchStart', { launcherSessionId, launcherSession });
     let appName = blockletName;
@@ -265,6 +441,16 @@ export default function Install() {
     }
 
     setState({ installError: null });
+
+    if (needsDebosLaunchLogin) {
+      openDebosLaunchLogin();
+      return;
+    }
+
+    if (shouldLaunchDebosWithoutWallet) {
+      await handleLaunchBlockletWithoutWallet();
+      return;
+    }
 
     if (session?.user && !isExternal && launchType !== 'serverless') {
       try {
@@ -344,7 +530,13 @@ export default function Install() {
   };
 
   const getNextWorkFlow = useCallback(async () => {
-    if (isFromLauncher || existWalletAccount || !state.connectData.action) {
+    if (
+      state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN ||
+      shouldLaunchDebosWithoutWallet ||
+      isFromLauncher ||
+      existWalletAccount ||
+      !state.connectData.action
+    ) {
       return '';
     }
     const nextUrl = new URL(window.location.href);
@@ -360,9 +552,17 @@ export default function Install() {
       setNw('');
     }
     return undefined;
-  }, [existWalletAccount, isFromLauncher, state.connectData.action, state.connectData.extraParams, encryptKey]);
+  }, [
+    shouldLaunchDebosWithoutWallet,
+    existWalletAccount,
+    isFromLauncher,
+    state.connectData.type,
+    state.connectData.action,
+    state.connectData.extraParams,
+    encryptKey,
+  ]);
 
-  const handleLaunchBlockletWithoutWallet = async () => {
+  async function handleLaunchBlockletWithoutWallet() {
     setState({ isConnectOpen: false, launching: true });
     let appName = blockletName;
     const description = meta?.description;
@@ -396,7 +596,7 @@ export default function Install() {
       console.error('launchBlockletWithoutWallet error:', error);
       Toast.error(formatError(error), { autoHideDuration: 3000 });
     }
-  };
+  }
 
   const redirectToBlockletOverview = b => {
     const accessUrl = `/${info.routing.adminPath}/blocklets/${b.meta.did}/configuration`.replace(/\/+/g, '/');
@@ -792,8 +992,13 @@ export default function Install() {
   }
 
   const showInstall = !state.launching && !status;
+  const isDebosLaunchLoginConnect = state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN;
+  let didConnectAction = state.connectData.action;
+  if (!isDebosLaunchLoginConnect && !shouldLaunchDebosWithoutWallet && !existWalletAccount && !isFromLauncher) {
+    didConnectAction = 'bind-wallet';
+  }
 
-  if (!isFromLauncher && !existWalletAccount && !nw && session.user) {
+  if (!shouldLaunchDebosWithoutWallet && !isFromLauncher && !existWalletAccount && !nw && session.user) {
     return (
       <Center relative="parent">
         <Alert severity="error">
@@ -898,10 +1103,11 @@ export default function Install() {
       <Connect
         open={state.isConnectOpen}
         popup
+        autoConnect={!isDebosLaunchLoginConnect}
         saveConnect={false}
         className="connect"
         baseUrl={state.connectData.baseUrl}
-        action={!existWalletAccount && !isFromLauncher ? 'bind-wallet' : state.connectData.action}
+        action={didConnectAction}
         checkFn={state.connectData.checkFn}
         extraParams={extraParams}
         forceConnected={false}
@@ -916,11 +1122,15 @@ export default function Install() {
           confirm: t('launchBlocklet.dialog.confirm'),
           success: t('launchBlocklet.dialog.success'),
         }}
-        customItems={[
-          <WithoutWallet
-            onClick={isFromLauncher ? handleLaunchBlockletByLauncher : handleLaunchBlockletWithoutWallet}
-          />,
-        ]}
+        customItems={
+          isDebosLaunchLoginConnect
+            ? [<DebosGoogleLogin key="google" extraParams={extraParams} onSuccess={handleConnectSuccess} />]
+            : [
+                <WithoutWallet
+                  onClick={isFromLauncher ? handleLaunchBlockletByLauncher : handleLaunchBlockletWithoutWallet}
+                />,
+              ]
+        }
       />
     </Container>
   );

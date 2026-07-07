@@ -20,7 +20,7 @@ import {
   BLOCKLET_AUTOMATIC_ENV_VALUE,
 } from '@blocklet/constant';
 
-import { WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
+import { DEBOS_BLOCKLET_DID, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
 import { useNodeContext } from '../../contexts/node';
 import { useBlockletContext } from '../../contexts/blocklet';
 import Layout from './layout';
@@ -31,7 +31,7 @@ export default function Config({ onNext = () => {}, onPrevious = () => {}, butto
   const { t } = useLocaleContext();
   const [loading, setLoading] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const { did, blocklet, actions } = useBlockletContext();
+  const { did, blocklet, actions, env } = useBlockletContext();
   const { prefix, getSessionInHeader } = useNodeContext();
 
   let selfConfigs = (blocklet.configs || []).filter((x) => !BLOCKLET_CONFIGURABLE_KEY[x.key]);
@@ -105,6 +105,14 @@ export default function Config({ onNext = () => {}, onPrevious = () => {}, butto
     return 0;
   });
 
+  const searchParams = new URLSearchParams(window.location.search);
+  const isLauncherSetup =
+    searchParams.get('__start__') === '1' || searchParams.has('setupToken') || searchParams.has('fromLauncher');
+  const isDebos =
+    [did, blocklet?.meta?.did, blocklet?.appPid].filter(Boolean).includes(DEBOS_BLOCKLET_DID) ||
+    env?.componentId?.split('/').includes(DEBOS_BLOCKLET_DID);
+  const setupConfigs = isLauncherSetup && isDebos ? sortedConfig.filter((item) => item.required) : sortedConfig;
+
   const missingRequiredConfigs = getAppMissingConfigs(blocklet).length;
 
   const onSubmitConfig = async (value) => {
@@ -132,7 +140,7 @@ export default function Config({ onNext = () => {}, onPrevious = () => {}, butto
 
   const defaultValue = {};
 
-  const schemaList = [...configurableEnvs, ...sortedConfig]
+  const schemaList = [...configurableEnvs, ...setupConfigs]
     .reduce((acc, item) => {
       const { value, ...rest } = item;
       defaultValue[item.key] = value;

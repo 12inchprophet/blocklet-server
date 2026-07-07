@@ -32,6 +32,7 @@
   "homepage": "https://github.com/ArcBlock/blocklet-server/tree/main/core/auth#readme",
   "dependencies": {
     "@abtnode/constant": "1.17.12",
+    "@abtnode/db-cache": "1.17.12",
     "@abtnode/logger": "1.17.12",
     "@abtnode/util": "1.17.12",
     "@arcblock/did": "1.29.27",

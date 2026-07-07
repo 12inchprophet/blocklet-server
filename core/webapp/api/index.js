@@ -39,6 +39,7 @@ const { protectGQL } = require('./libs/security');
 const gql = require('./gql');
 const createWebSocketServer = require('./ws');
 const createRelayServer = require('./ws/relay');
+const { restrictGuestDashboardSession } = require('./libs/launch-session');
 
 const logger = log('webapp:index');
 
@@ -53,6 +54,8 @@ const createIssuePassportAuth = require('./routes/auth/issue-passport');
 const createLostPassportListAuth = require('./routes/auth/lost-passport-list');
 const createLostPassportIssueAuth = require('./routes/auth/lost-passport-issue');
 const createInviteAuth = require('./routes/auth/invite');
+const createLoginDebosLaunchAuth = require('./routes/auth/login-debos-launch');
+const googleDebosLaunchRoutes = require('./routes/auth/google-debos-launch');
 const createLaunchFreeBlockletBySessionAuth = require('./routes/auth/launch-free-blocklet-by-session');
 const createLaunchFreeBlockletByLauncherAuth = require('./routes/auth/launch-free-blocklet-by-launcher');
 const createBindWalletAuth = require('./routes/auth/bind-wallet');
@@ -259,6 +262,8 @@ module.exports = function createServer(node) {
       req.user = user;
     }
 
+    restrictGuestDashboardSession(req);
+
     next();
   });
 
@@ -282,6 +287,8 @@ module.exports = function createServer(node) {
   handlers.attach(Object.assign({ app: router }, createLostPassportListAuth(node)));
   handlers.attach(Object.assign({ app: router }, createLostPassportIssueAuth(node)));
   handlers.attach(Object.assign({ app: router }, createInviteAuth(node)));
+  handlers.attach(Object.assign({ app: router }, createLoginDebosLaunchAuth(node)));
+  googleDebosLaunchRoutes.init(router, node);
   handlers.attach(Object.assign({ app: router }, createVerifyAppOwnershipAuth(node, 'spaces')));
   handlers.attach(Object.assign({ app: router }, createVerifyAppOwnershipAuth(node, 'disk')));
   handlers.attach(Object.assign({ app: router }, createRotateKeyPairAuth(node)));

@@ -36,12 +36,19 @@ const getAccountTypes = (t) => ({
     isDefault: false,
     priority: 2,
   },
+  google: {
+    icon: EmailIcon,
+    label: 'Google',
+    description: 'Google account login',
+    isDefault: true,
+    priority: 3,
+  },
   email: {
     icon: EmailIcon,
     label: t('setup.connectAccount.email'),
     description: t('setup.connectAccount.emailDesc'),
     isDefault: true,
-    priority: 3,
+    priority: 4,
   },
 });
 
@@ -227,6 +234,12 @@ function ConnectAccount({ onNext = () => {}, onPrevious = () => {} }) {
           displayName: userInfo?.name || did,
           ...account,
         };
+      } else if (provider === 'google') {
+        result.google = {
+          did,
+          displayName: userInfo?.email || userInfo?.name || session.user?.email || id,
+          ...account,
+        };
       }
     });
 
@@ -284,7 +297,7 @@ function ConnectAccount({ onNext = () => {}, onPrevious = () => {} }) {
         {/* 状态概览 */}
 
         {Object.entries(ACCOUNT_TYPES)
-          .filter(([type]) => accounts[type] || type !== 'email')
+          .filter(([type, config]) => accounts[type] || !config.isDefault)
           .sort(([, a], [, b]) => a.priority - b.priority)
           .map(([type]) => (
             <AccountCard

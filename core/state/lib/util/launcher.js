@@ -35,6 +35,7 @@ const {
   NODE_DATA_DIR_NAME,
   USER_AVATAR_URL_PREFIX,
   ROLES,
+  DEBOS_BLOCKLET_DID,
   LAUNCH_SESSION_STATUS,
   SERVERLESS_BLOCKLET_DATA_RETENTION_DAYS,
 } = require('@abtnode/constant');
@@ -395,7 +396,8 @@ const setupAppOwner = async ({
         provider,
         did: ownerDid,
         pk: ownerPk,
-        id: provider === LOGIN_PROVIDER.WALLET ? ownerDid : `email|${appOwnerProfile.email}`,
+        id:
+          provider === LOGIN_PROVIDER.WALLET ? ownerDid : user.connectedAccount?.id || `email|${appOwnerProfile.email}`,
       },
     },
   });
@@ -430,6 +432,7 @@ const setupAppOwner = async ({
     passport,
     role,
     fullName: appOwnerProfile?.fullName,
+    provider,
     secret,
     expiresIn: '1d',
     elevated: true,
@@ -684,12 +687,18 @@ const launchBlockletWithoutWallet = async (node, extraParams, context) => {
     throw new Error('Blocklet not found');
   }
 
+  if (context?.user?.role === ROLES.GUEST && blocklet?.meta?.did !== DEBOS_BLOCKLET_DID) {
+    throw new CustomError(403, 'Guest launch sessions can only launch DeBOS');
+  }
+
   // generate app key pair
   const type = (blocklet?.meta?.environments || []).find((x) => x.name === 'CHAIN_TYPE')?.default || 'default';
   const appWallet = fromRandom(type);
 
   // use the server user to set up the app owner, this account only allows using the passkey to login
   const { user } = context;
+  const provider =
+    user.sourceProvider || user.provider || user.connectedAccounts?.[0]?.provider || LOGIN_PROVIDER.EMAIL;
 
   let data = {};
 
@@ -713,7 +722,7 @@ const launchBlockletWithoutWallet = async (node, extraParams, context) => {
       updateSession: (updates) => {
         data = merge(data, updates);
       },
-      provider: LOGIN_PROVIDER.EMAIL,
+      provider,
     },
     context
   );

@@ -2,8 +2,9 @@
 
 import { isSlpDomain } from '@abtnode/util/lib/url-evaluation';
 import { getAccessibleUrl, getBlockletUrls } from '@abtnode/ux/lib/util';
+import { DEBOS_BLOCKLET_DID } from '@abtnode/constant';
 
-export const authorize = ({ user, launchType, nftId }) => {
+export const authorize = ({ user, launchType, nftId, blockletDid }) => {
   if (!user) {
     return false;
   }
@@ -16,7 +17,10 @@ export const authorize = ({ user, launchType, nftId }) => {
     return user?.controller?.nftId === nftId;
   }
 
-  return (user.permissions || []).includes('mutate_blocklets');
+  return (
+    (user.permissions || []).includes('mutate_blocklets') ||
+    (user.approved === true && blockletDid === DEBOS_BLOCKLET_DID)
+  );
 };
 
 export const isServerlessBlockletInstalled = runtimeBlockletState =>

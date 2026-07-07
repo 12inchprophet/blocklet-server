@@ -15,6 +15,7 @@ const appPk = '0x76b9616f1698d9629276656eaab8b363cd36964b66226a19f8c8424b25c4b28
 const addressA = fromRandom().address;
 const addressB = fromRandom().address;
 const addressC = fromRandom().address;
+const addressD = fromRandom().address;
 
 process.env.ABT_NODE_DATA_DIR = os.tmpdir();
 process.env.ABT_NODE_SESSION_SECRET = '0x1b234ff1c8a64882f6118a128ed55a5f77f264909bcaa3fe3848ddcaa2bd9aa0';
@@ -63,6 +64,8 @@ afterAll(() => {
 
 const express = require('express');
 const request = require('supertest');
+const { DEBOS_BLOCKLET_DID } = require('@abtnode/constant');
+const { LOGIN_PROVIDER } = require('@blocklet/constant');
 // const { getBlockletInfo } = require('@blocklet/meta/lib/info');
 const { init } = require('../../../api/routes/blocklet-info');
 
@@ -147,6 +150,42 @@ describe('blocklet info', () => {
               BLOCKLET_APP_LOGO_SQUARE: 'https://logo',
             },
             status: 8,
+          };
+        }
+
+        if (did === addressD) {
+          return {
+            appDid: addressD,
+            appPid: addressD,
+            meta: {
+              did: addressD,
+              version: mockVersion,
+            },
+            settings: {
+              authentication: {
+                wallet: { enabled: true, order: 0, showQrcode: true, type: 'builtin' },
+                passkey: { enabled: true, order: 1, type: 'builtin' },
+              },
+            },
+            environmentObj: {
+              BLOCKLET_APP_URL: mockAppUrl,
+              BLOCKLET_COMPONENT_DID: DEBOS_BLOCKLET_DID,
+            },
+            status: 8,
+            children: [
+              {
+                meta: {
+                  title: 'DeBOS',
+                  name: 'debos',
+                  version: '1.0.0',
+                  did: DEBOS_BLOCKLET_DID,
+                  bundleName: 'debos',
+                  interfaces: [{ name: 'publicUrl', type: 'web', path: '/', prefix: '*' }],
+                },
+                status: 8,
+                mountPoint: '/',
+              },
+            ],
           };
         }
 
@@ -316,4 +355,25 @@ describe('blocklet info', () => {
     res = await request(app).get('/blocklet/splash/landscape/c');
     expect(res.statusCode).toBe(400);
   }, 30_000);
+
+  test('exposes Google auth metadata for launched DeBOS instances', async () => {
+    process.env.DEBOS_GOOGLE_CLIENT_ID = 'google-client-id';
+    process.env.DEBOS_GOOGLE_CLIENT_SECRET = 'google-client-secret';
+    process.env.DEBOS_GOOGLE_BROKER_URL = 'https://server.example/.well-known/server/admin';
+
+    try {
+      const res = await request(app).get('/xxxx/__blocklet__.js?type=json').set('x-blocklet-did', addressD);
+
+      expect(res.status).toBe(200);
+      expect(res._body.settings.authentication[LOGIN_PROVIDER.GOOGLE]).toEqual({
+        enabled: true,
+        order: 2,
+        type: 'oauth',
+      });
+    } finally {
+      delete process.env.DEBOS_GOOGLE_CLIENT_ID;
+      delete process.env.DEBOS_GOOGLE_CLIENT_SECRET;
+      delete process.env.DEBOS_GOOGLE_BROKER_URL;
+    }
+  });
 });

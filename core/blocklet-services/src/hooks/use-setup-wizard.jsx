@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { joinURL } from 'ufo';
 
-import { WELLKNOWN_BLOCKLET_ADMIN_PATH, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
+import { DEBOS_BLOCKLET_DID, WELLKNOWN_BLOCKLET_ADMIN_PATH, WELLKNOWN_SERVICE_PATH_PREFIX } from '@abtnode/constant';
 import { useLocaleContext } from '@arcblock/ux/lib/Locale/context';
 import { setVisitorId } from '@arcblock/ux/lib/Util';
 import { BLOCKLET_APP_SPACE_REQUIREMENT, BLOCKLET_CONFIGURABLE_KEY } from '@blocklet/constant';
@@ -21,7 +21,7 @@ export default function useSetupWizard(
   const { t } = useLocaleContext();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { meta, blocklet, actions, launcherSession } = useBlockletContext();
+  const { meta, blocklet, actions, launcherSession, env } = useBlockletContext();
   const serverUrl = localStorage.getItem('blocklet-server-url');
   const { session } = useSessionContext();
 
@@ -117,7 +117,7 @@ export default function useSetupWizard(
     };
   };
 
-  const steps = [
+  const defaultSteps = [
     {
       key: 'bind-account',
       stepTitle: t('setup.steps.connect'),
@@ -174,6 +174,29 @@ export default function useSetupWizard(
         }
       : null,
   ].filter(Boolean);
+
+  const isLauncherSetup =
+    searchParams.get('__start__') === '1' || searchParams.has('setupToken') || Boolean(fromLauncher);
+  const isDebos =
+    [meta?.did, blocklet?.meta?.did, blocklet?.appPid].filter(Boolean).includes(DEBOS_BLOCKLET_DID) ||
+    env?.componentId?.split('/').includes(DEBOS_BLOCKLET_DID);
+  const isStreamlinedDebosSetup = isLauncherSetup && isDebos;
+
+  // DeBOS instances are fully provisioned by the launcher. Keep first-run onboarding focused on
+  // naming the instance and confirming required values; integrations remain available in Dashboard.
+  const steps = isStreamlinedDebosSetup ? defaultSteps.filter((step) => step.key === 'config') : defaultSteps;
+
+  useEffect(() => {
+    if (!isStreamlinedDebosSetup) {
+      return;
+    }
+
+    const currentStep = window.location.pathname.split('/').filter(Boolean).pop();
+    const skippedSteps = ['bind-account', 'access', 'aigne', 'domain', 'did-space', 'branding', 'fuel'];
+    if (skippedSteps.includes(currentStep)) {
+      navigate(`${joinURL(basePath, 'config')}${window.location.search}`, { replace: true });
+    }
+  }, [basePath, isStreamlinedDebosSetup, navigate]);
 
   const stepIndex = steps.findIndex(
     (x) => `${PREFIX.replace(/\/$/, '')}${basePath}/${x.key}` === window.location.pathname
