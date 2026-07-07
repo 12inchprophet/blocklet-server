@@ -19,11 +19,13 @@ This fork preserves the default Blocklet Server authorization behavior and adds 
 5. Google OAuth creates or reuses an approved guest account whose DID is deterministically
    derived from the Google subject and the server key. The Google subject is not accepted from
    the browser.
-6. The launch authorization check permits a session-authenticated, approved user only when the
+6. The server issues a signed guest token scoped with `purpose=debos-launch` and the canonical
+   DeBOS DID. A generic guest session is not accepted by the launch-only server routes.
+7. The launch authorization check permits a session-authenticated, approved user only when the
    fetched Blocklet metadata DID equals the DeBOS DID.
-7. The existing installation and app-owner setup path creates the launched DeBOS instance and
+8. The existing installation and app-owner setup path creates the launched DeBOS instance and
    records the authenticated user as its owner.
-8. Existing server and Blocklet audit logs remain in place. Google authentication additionally
+9. Existing server and Blocklet audit logs remain in place. Google authentication additionally
    records `login-debos-launch`, the provider, user DID, and DeBOS DID.
 
 ## Security boundaries
@@ -35,6 +37,13 @@ This fork preserves the default Blocklet Server authorization behavior and adds 
   sent to the browser.
 - Google login is fail-closed and hidden from the UI unless both credentials are configured.
 - The Google route rejects non-DeBOS metadata before creating a session.
+- Launch guests are denied access to ordinary server dashboard routes, even if they forge a
+  launch-page `Referer` header.
+- Re-entry grants are random, stored only as hashes, expire after two minutes, and can be consumed
+  only once by the intended DeBOS app DID.
+- OAuth popup callbacks must use the actual target DeBOS origin and the fixed callback path.
+- Temporary grants contain only identifiers needed for authorization; Google profile data is not
+  copied into the grant.
 - Existing owner/admin authorization is unchanged.
 
 ## Google configuration
@@ -51,6 +60,7 @@ Expose these variables to the Blocklet Server service process and restart the se
 ```text
 DEBOS_GOOGLE_CLIENT_ID
 DEBOS_GOOGLE_CLIENT_SECRET
+DEBOS_GOOGLE_BROKER_URL
 ```
 
 When the Google consent screen is in Testing mode, add each test Google account as a test user.
@@ -67,6 +77,8 @@ Automated coverage:
 5. The OAuth config endpoint never exposes the client secret.
 6. A valid Google response creates an approved guest and audit event.
 7. Non-DeBOS metadata and tampered OAuth state are rejected.
+8. A generic guest token cannot access server dashboard APIs or impersonate a launch-scoped guest.
+9. A re-entry popup callback for any origin other than the target DeBOS instance is rejected.
 
 Manual end-to-end test:
 

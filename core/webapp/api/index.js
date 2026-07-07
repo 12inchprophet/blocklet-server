@@ -21,7 +21,6 @@ const {
   USER_AVATAR_URL_PREFIX,
   USER_AVATAR_PATH_PREFIX,
   NODE_MODES,
-  ROLES,
 } = require('@abtnode/constant');
 const http = require('http');
 const { setUserInfoHeaders } = require('@abtnode/auth/lib/auth');
@@ -40,50 +39,9 @@ const { protectGQL } = require('./libs/security');
 const gql = require('./gql');
 const createWebSocketServer = require('./ws');
 const createRelayServer = require('./ws/relay');
+const { restrictGuestDashboardSession } = require('./libs/launch-session');
 
 const logger = log('webapp:index');
-
-const isLaunchBlockletReferer = req => {
-  const referrer = req.get('referer') || req.get('referrer');
-  if (!referrer) {
-    return false;
-  }
-
-  try {
-    const { pathname } = new URL(referrer, `${req.protocol}://${req.get('host') || 'localhost'}`);
-    return pathname.includes('/launch-blocklet');
-  } catch {
-    return false;
-  }
-};
-
-const isLaunchOnlyGuestAllowedRequest = req => {
-  const requestPath = `${req.baseUrl || ''}${req.path || req.url || ''}`;
-
-  if (
-    requestPath.includes('/api/oauth/debos-launch') ||
-    requestPath.includes('/oauth/debos-launch') ||
-    requestPath.includes('/oauth/debos-login')
-  ) {
-    return true;
-  }
-
-  if (
-    requestPath.includes('/api/did/session') ||
-    requestPath.includes('/api/did/refreshSession') ||
-    requestPath.includes('/api/gql')
-  ) {
-    return isLaunchBlockletReferer(req);
-  }
-
-  return false;
-};
-
-const restrictGuestDashboardSession = req => {
-  if (req.user?.role === ROLES.GUEST && !isLaunchOnlyGuestAllowedRequest(req)) {
-    req.user = null;
-  }
-};
 
 const createLoginAuth = require('./routes/auth/login');
 const createExchangePassportAuth = require('./routes/auth/exchange-passport');

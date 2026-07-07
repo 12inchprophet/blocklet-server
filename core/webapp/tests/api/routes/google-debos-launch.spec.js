@@ -194,6 +194,27 @@ describe('Google DeBOS launch auth', () => {
     });
   });
 
+  test('rejects a popup callback that does not belong to the target DeBOS instance', async () => {
+    const app = createApp(createNode(), () => {
+      throw new Error('Google client must not be created');
+    });
+
+    const res = await request(app)
+      .get('/oauth/debos-login/google')
+      .query({
+        appDid: 'zTargetAppDid',
+        redirect: '/',
+        oauthPopup: '1',
+        oauthCallbackUrl: 'https://attacker.example/.well-known/service/oauth/callback/google',
+        oauthState: 'https://attacker.example',
+      })
+      .set('host', 'server.example')
+      .set('x-forwarded-proto', 'https');
+
+    expect(res.status).toBe(400);
+    expect(res.text).toContain('does not belong to the target blocklet');
+  });
+
   test('creates a one-time instance login grant for the Google owner', async () => {
     const node = createNode({
       targetUserFactory: ({ user }) => ({

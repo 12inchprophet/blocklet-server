@@ -136,7 +136,7 @@ const normalizeRelativeRedirect = value => {
   }
 };
 
-const normalizeDebosOauthPopup = ({ oauthPopup, oauthCallbackUrl, oauthState }) => {
+const normalizeDebosOauthPopup = ({ oauthPopup, oauthCallbackUrl, oauthState }, expectedOrigin) => {
   if (!oauthPopup) {
     return {};
   }
@@ -156,6 +156,10 @@ const normalizeDebosOauthPopup = ({ oauthPopup, oauthCallbackUrl, oauthState }) 
 
   if (callback.origin !== caller.origin) {
     throw new CustomError(400, 'Invalid OAuth popup caller');
+  }
+
+  if (callback.origin !== expectedOrigin) {
+    throw new CustomError(400, 'OAuth popup callback does not belong to the target blocklet');
   }
 
   const expectedPath = joinURL(WELLKNOWN_SERVICE_PATH_PREFIX, '/oauth/callback/google');
@@ -291,8 +295,8 @@ module.exports = {
 
       const appDid = String(req.query.appDid || '');
       const redirectPath = normalizeRelativeRedirect(req.query.redirect);
-      const oauthPopup = normalizeDebosOauthPopup(req.query);
-      await getTargetDebosBlocklet({ node, appDid });
+      const target = await getTargetDebosBlocklet({ node, appDid });
+      const oauthPopup = normalizeDebosOauthPopup(req.query, new URL(target.appUrl).origin);
 
       const state = signState(
         {
@@ -359,10 +363,8 @@ module.exports = {
           {
             appDid: payload.appDid,
             userDid,
-            userPk: userWallet.publicKey,
             provider: LOGIN_PROVIDER.GOOGLE,
             googleSub: profile.sub,
-            profile,
             redirectPath: payload.redirectPath,
           },
           { dataDir: node.dataDirs?.data }

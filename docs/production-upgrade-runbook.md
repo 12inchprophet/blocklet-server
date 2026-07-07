@@ -103,4 +103,7 @@ After rollback, re-run:
 - The script updates the Blocklet Server runtime code, not the blocklet instance data.
 - Do not run `--apply` without a fresh droplet snapshot.
 - Keep the production Google OAuth client secret out of git. Configure it on the server runtime/env only.
-- Production must define `DEBOS_GOOGLE_CLIENT_ID` and `DEBOS_GOOGLE_CLIENT_SECRET` before Google launch is considered live.
+- Production must define `DEBOS_GOOGLE_CLIENT_ID`, `DEBOS_GOOGLE_CLIENT_SECRET`, and the canonical HTTPS
+  `DEBOS_GOOGLE_BROKER_URL` before Google launch is considered live.
+- Treat a Blocklet Server host operator as part of the tenant trust boundary. Do not claim zero-knowledge or
+  zero-operator-access isolation unless tenant-held encryption keys and an independently enforced break-glass process exist.
