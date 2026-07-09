@@ -25,7 +25,10 @@ This fork preserves the default Blocklet Server authorization behavior and adds 
    fetched Blocklet metadata DID equals the DeBOS DID.
 8. The existing installation and app-owner setup path creates the launched DeBOS instance and
    records the authenticated user as its owner.
-9. Existing server and Blocklet audit logs remain in place. Google authentication additionally
+9. Before the expensive install work starts, a provider-neutral launch guard reserves the attempt
+   in a server-local ledger. Google users and wallet users both pass through the same quota and
+   blocklist rules.
+10. Existing server and Blocklet audit logs remain in place. Google authentication additionally
    records `login-debos-launch`, the provider, user DID, and DeBOS DID.
 
 ## Security boundaries
@@ -44,7 +47,52 @@ This fork preserves the default Blocklet Server authorization behavior and adds 
 - OAuth popup callbacks must use the actual target DeBOS origin and the fixed callback path.
 - Temporary grants contain only identifiers needed for authorization; Google profile data is not
   copied into the grant.
+- DeBOS launch abuse limits are enforced at the install boundary, so a user cannot bypass them by
+  switching between the Google and wallet UI paths for the same identity.
 - Existing owner/admin authorization is unchanged.
+
+## Launch abuse guard
+
+The guard is intentionally shared by Google and DID Wallet launches. It only applies to approved
+guest launches of the canonical DeBOS DID; owner/admin server operations and non-DeBOS blocklets
+continue to use the normal Blocklet Server authorization path.
+
+The ledger is stored under the Blocklet Server node data directory:
+
+```text
+${node.dataDirs.data}/debos-launch-guard.json
+```
+
+If the node data directory is not available, the guard falls back to `ABT_NODE_DATA_DIR` and then
+the system temp directory.
+
+Production operators can tune the policy with environment variables:
+
+```text
+DEBOS_LAUNCH_GUARD_ENABLED=true
+DEBOS_LAUNCH_REQUIRE_VERIFIED_GOOGLE_EMAIL=true
+DEBOS_LAUNCH_MAX_ACTIVE_PER_IDENTITY=1
+DEBOS_LAUNCH_MAX_ATTEMPTS_PER_IDENTITY_PER_DAY=2
+DEBOS_LAUNCH_MAX_ATTEMPTS_PER_IP_PER_HOUR=5
+DEBOS_LAUNCH_MAX_FAILED_PER_IP_PER_DAY=10
+DEBOS_LAUNCH_MAX_PENDING=3
+DEBOS_LAUNCH_PENDING_TTL_MS=1800000
+DEBOS_LAUNCH_ACTIVE_WINDOW_DAYS=30
+DEBOS_LAUNCH_LEDGER_RETENTION_DAYS=90
+DEBOS_LAUNCH_BLOCKED_EMAILS=
+DEBOS_LAUNCH_BLOCKED_EMAIL_DOMAINS=
+DEBOS_LAUNCH_BLOCKED_DIDS=
+DEBOS_LAUNCH_BLOCKED_IPS=
+```
+
+Capacity checks are opt-in because small droplets can show noisy free-memory values during normal
+Blocklet Server activity:
+
+```text
+DEBOS_LAUNCH_MIN_FREE_MEMORY_MB=0
+DEBOS_LAUNCH_MIN_FREE_DISK_MB=0
+DEBOS_LAUNCH_STRICT_CAPACITY=false
+```
 
 ## Google configuration
 
@@ -79,6 +127,8 @@ Automated coverage:
 7. Non-DeBOS metadata and tampered OAuth state are rejected.
 8. A generic guest token cannot access server dashboard APIs or impersonate a launch-scoped guest.
 9. A re-entry popup callback for any origin other than the target DeBOS instance is rejected.
+10. A second active guest launch by the same wallet identity is rejected by the shared launch guard.
+11. A blocked wallet DID is rejected before launch session creation.
 
 Manual end-to-end test:
 
@@ -97,6 +147,7 @@ Manual end-to-end test:
 
 - `core/constant/src/blocklet.js`: canonical DeBOS DID.
 - `core/auth/lib/server.js`: narrow approved-session/DeBOS authorization exception.
+- `core/auth/lib/debos-launch-guard.js`: shared quota, blocklist, and ledger guard for guest DeBOS launches.
 - `core/webapp/api/routes/auth/login-debos-launch.js`: wallet/passkey launch login guard.
 - `core/webapp/api/routes/auth/google-debos-launch.js`: Google OAuth and guest session creation.
 - `core/webapp/src/components/launch-blocklet/step-install.jsx`: launch login choices.

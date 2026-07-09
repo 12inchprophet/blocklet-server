@@ -105,5 +105,13 @@ After rollback, re-run:
 - Keep the production Google OAuth client secret out of git. Configure it on the server runtime/env only.
 - Production must define `DEBOS_GOOGLE_CLIENT_ID`, `DEBOS_GOOGLE_CLIENT_SECRET`, and the canonical HTTPS
   `DEBOS_GOOGLE_BROKER_URL` before Google launch is considered live.
+- The shared DeBOS launch guard is on by default. Start production with conservative limits and tune from real traffic:
+  `DEBOS_LAUNCH_MAX_ACTIVE_PER_IDENTITY=1`, `DEBOS_LAUNCH_MAX_ATTEMPTS_PER_IDENTITY_PER_DAY=2`,
+  `DEBOS_LAUNCH_MAX_ATTEMPTS_PER_IP_PER_HOUR=5`, and `DEBOS_LAUNCH_MAX_PENDING=3`.
+- Keep capacity gates opt-in unless the droplet is sized and monitored for them:
+  `DEBOS_LAUNCH_MIN_FREE_MEMORY_MB=0` and `DEBOS_LAUNCH_MIN_FREE_DISK_MB=0`.
+- Blocklists are comma-separated and can be used immediately during an abuse incident:
+  `DEBOS_LAUNCH_BLOCKED_EMAILS`, `DEBOS_LAUNCH_BLOCKED_EMAIL_DOMAINS`, `DEBOS_LAUNCH_BLOCKED_DIDS`, and
+  `DEBOS_LAUNCH_BLOCKED_IPS`.
 - Treat a Blocklet Server host operator as part of the tenant trust boundary. Do not claim zero-knowledge or
   zero-operator-access isolation unless tenant-held encryption keys and an independently enforced break-glass process exist.

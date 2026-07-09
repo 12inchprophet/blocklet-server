@@ -10,6 +10,7 @@ const { joinURL, withQuery } = require('ufo');
 const { OauthClient } = require('@abtnode/blocklet-services/api/libs/auth');
 const OAuthGoogle = require('@abtnode/blocklet-services/api/libs/auth/adapters/google');
 const { createDebosGoogleLoginGrant } = require('@abtnode/auth/lib/debos-google-grant');
+const { assertDebosLaunchLoginAllowed } = require('@abtnode/auth/lib/debos-launch-guard');
 const logger = require('@abtnode/logger')(require('../../../package.json').name);
 
 const { createToken } = require('../../libs/login');
@@ -422,6 +423,13 @@ module.exports = {
       const info = await node.getNodeInfo();
       const userWallet = fromAppDid(profile.sub, info.sk);
       const userDid = userWallet.address;
+      await assertDebosLaunchLoginAllowed({
+        node,
+        provider: LOGIN_PROVIDER.GOOGLE,
+        userDid,
+        googleProfile: profile,
+        req,
+      });
       const existingUser = await node.getUser({
         teamDid: info.did,
         user: { did: userDid },

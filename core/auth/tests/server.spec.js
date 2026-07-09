@@ -1,5 +1,8 @@
 const { test, expect, describe, beforeEach, mock, spyOn } = require('bun:test');
+const os = require('node:os');
+const path = require('node:path');
 const axios = require('@abtnode/util/lib/axios');
+const fs = require('fs-extra');
 const { fromRandom, WalletType } = require('@ocap/wallet');
 const { types } = require('@ocap/mcrypto');
 const { DEBOS_BLOCKLET_DID } = require('@abtnode/constant');
@@ -312,8 +315,10 @@ describe('server', () => {
 
     test('should install DeBOS for an approved guest session', async () => {
       const installBlocklet = mock();
+      const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'debos-launch-server-test-'));
       const guestNode = {
         ...node,
+        dataDirs: { data: dataDir },
         getUser: () => ({ approved: true, passports: [] }),
         getBlockletMetaFromUrl: () => ({ meta: { did: DEBOS_BLOCKLET_DID }, isFree: true }),
         getPermissionsByRole: () => [],
@@ -323,11 +328,15 @@ describe('server', () => {
       };
       const handler = createLaunchBlockletHandler(guestNode, 'session');
 
-      await handler({
-        ...params,
-        updateSession: mock(),
-        extraParams: { locale: 'en', blockletMetaUrl: 'https://example.com/debos/blocklet.json' },
-      });
+      try {
+        await handler({
+          ...params,
+          updateSession: mock(),
+          extraParams: { locale: 'en', blockletMetaUrl: 'https://example.com/debos/blocklet.json' },
+        });
+      } finally {
+        await fs.remove(dataDir);
+      }
 
       expect(installBlocklet).toHaveBeenCalledTimes(1);
     });
