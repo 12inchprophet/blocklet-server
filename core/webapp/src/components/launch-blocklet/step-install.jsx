@@ -50,6 +50,7 @@ import { useNodeContext } from '../../contexts/node';
 import useRuntimeBlockletState from '../../contexts/runtime-blocklet-state';
 import { useSessionContext } from '../../contexts/session';
 import useQuery from '../../hooks/query';
+import { create as createNodeClient } from '../../libs/node';
 import {
   formatError,
   getAccessibleUrl,
@@ -332,14 +333,16 @@ export default function Install() {
     return appName;
   };
 
-  const launchBlockletWithoutWallet = async (user = session.user) => {
+  const launchBlockletWithoutWallet = async (user = session.user, token = '') => {
     const appName = getLaunchAppName(user);
     const description = meta?.description;
     debug('launchBlockletWithoutWallet', {
       title: appName,
       blockletMetaUrl,
+      hasToken: !!token,
     });
-    const { data } = await api.launchBlockletWithoutWallet({
+    const launchApi = token ? createNodeClient(token) : api;
+    const { data } = await launchApi.launchBlockletWithoutWallet({
       input: {
         title: appName,
         blockletMetaUrl: blockletMetaUrl || '',
@@ -359,10 +362,11 @@ export default function Install() {
     const result = Array.isArray(results) ? results[results.length - 1] : results;
 
     if (state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN && result.sessionToken) {
+      let nextSessionToken = '';
       if (result.sessionToken) {
-        setSessionToken(
-          result.sessionToken.split('.').length === 3 ? result.sessionToken : decrypt(result.sessionToken)
-        );
+        nextSessionToken =
+          result.sessionToken.split('.').length === 3 ? result.sessionToken : decrypt(result.sessionToken);
+        setSessionToken(nextSessionToken);
       }
       if (result.refreshToken) {
         setRefreshToken(
@@ -376,7 +380,7 @@ export default function Install() {
       await session.refresh();
       setState({ isConnectOpen: false, launching: true });
       try {
-        const data = await launchBlockletWithoutWallet();
+        const data = await launchBlockletWithoutWallet(session.user, nextSessionToken);
         handleConnectSuccess(data);
       } catch (error) {
         console.error('launchBlockletWithoutWalletAfterLogin error:', error);
