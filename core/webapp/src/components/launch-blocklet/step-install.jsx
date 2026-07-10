@@ -50,6 +50,7 @@ import { useNodeContext } from '../../contexts/node';
 import useRuntimeBlockletState from '../../contexts/runtime-blocklet-state';
 import { useSessionContext } from '../../contexts/session';
 import useQuery from '../../hooks/query';
+import { create as createNodeClient } from '../../libs/node';
 import {
   formatError,
   getAccessibleUrl,
@@ -317,17 +318,55 @@ export default function Install() {
     }
   };
 
+  const getLaunchAppName = (user = session.user) => {
+    let appName = blockletName;
+    if (user && !isEmptyBlocklet) {
+      // Just in case the name is too long
+      const betterName = `${user.fullName}'s ${blockletName}`;
+      const { error } = titleSchema.validate(betterName);
+      if (!error) {
+        appName = betterName;
+      } else {
+        console.warn({ appName, betterName, error });
+      }
+    }
+    return appName;
+  };
+
+  const launchBlockletWithoutWallet = async (user = session.user, token = '') => {
+    const appName = getLaunchAppName(user);
+    const description = meta?.description;
+    debug('launchBlockletWithoutWallet', {
+      title: appName,
+      blockletMetaUrl,
+      hasToken: !!token,
+    });
+    const launchApi = token ? createNodeClient(token) : api;
+    const { data } = await launchApi.launchBlockletWithoutWallet({
+      input: {
+        title: appName,
+        blockletMetaUrl: blockletMetaUrl || '',
+        type: installType,
+        description,
+        storeUrl: storeUrl || '',
+        onlyRequired,
+      },
+    });
+    return data;
+  };
+
   const handleConnectSuccess = async results => {
     debug('handleConnectSuccess', results);
     Toast.success(t('launchBlocklet.dialog.success'));
 
     const result = Array.isArray(results) ? results[results.length - 1] : results;
 
-    if (state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN) {
+    if (state.connectData.type === CONNECT_DATA_TYPE_DEBOS_LAUNCH_LOGIN && result.sessionToken) {
+      let nextSessionToken = '';
       if (result.sessionToken) {
-        setSessionToken(
-          result.sessionToken.split('.').length === 3 ? result.sessionToken : decrypt(result.sessionToken)
-        );
+        nextSessionToken =
+          result.sessionToken.split('.').length === 3 ? result.sessionToken : decrypt(result.sessionToken);
+        setSessionToken(nextSessionToken);
       }
       if (result.refreshToken) {
         setRefreshToken(
@@ -339,8 +378,15 @@ export default function Install() {
       }
 
       await session.refresh();
-      setState({ isConnectOpen: false, launching: false });
-      window.location.reload();
+      setState({ isConnectOpen: false, launching: true });
+      try {
+        const data = await launchBlockletWithoutWallet(session.user, nextSessionToken);
+        handleConnectSuccess(data);
+      } catch (error) {
+        console.error('launchBlockletWithoutWalletAfterLogin error:', error);
+        setState({ launching: false });
+        Toast.error(formatError(error), { autoHideDuration: 3000 });
+      }
       return;
     }
 
@@ -564,33 +610,8 @@ export default function Install() {
 
   async function handleLaunchBlockletWithoutWallet() {
     setState({ isConnectOpen: false, launching: true });
-    let appName = blockletName;
-    const description = meta?.description;
-    if (session.user && !isEmptyBlocklet) {
-      // Just in case the name is too long
-      const betterName = `${session.user.fullName}'s ${blockletName}`;
-      const { error } = titleSchema.validate(betterName);
-      if (!error) {
-        appName = betterName;
-      } else {
-        console.warn({ appName, betterName, error });
-      }
-    }
-    debug('launchBlockletWithoutWallet', {
-      title: appName,
-      blockletMetaUrl,
-    });
     try {
-      const { data } = await api.launchBlockletWithoutWallet({
-        input: {
-          title: appName,
-          blockletMetaUrl: blockletMetaUrl || '',
-          type: installType,
-          description,
-          storeUrl: storeUrl || '',
-          onlyRequired,
-        },
-      });
+      const data = await launchBlockletWithoutWallet();
       handleConnectSuccess(data);
     } catch (error) {
       console.error('launchBlockletWithoutWallet error:', error);

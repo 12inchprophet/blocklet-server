@@ -59,6 +59,12 @@ require_cmd tar
 note "Running preflight"
 "${ROOT_DIR}/scripts/production/preflight.sh"
 
+note "Building webapp client bundle"
+(
+  cd "${ROOT_DIR}/core/webapp"
+  npm run build:client
+)
+
 note "Building webapp daemon bundle"
 (
   cd "${ROOT_DIR}/core/webapp"
@@ -81,6 +87,7 @@ fi
 mkdir -p "${ARTIFACT_DIR}/@abtnode/auth/lib"
 cp "${ROOT_DIR}/core/auth/lib/server.js" "${ARTIFACT_DIR}/@abtnode/auth/lib/server.js"
 cp "${ROOT_DIR}/core/auth/lib/debos-google-grant.js" "${ARTIFACT_DIR}/@abtnode/auth/lib/debos-google-grant.js"
+cp "${ROOT_DIR}/core/auth/lib/debos-launch-guard.js" "${ARTIFACT_DIR}/@abtnode/auth/lib/debos-launch-guard.js"
 mkdir -p "${ARTIFACT_DIR}/@abtnode/state/lib/util"
 cp "${ROOT_DIR}/core/state/lib/util/launcher.js" "${ARTIFACT_DIR}/@abtnode/state/lib/util/launcher.js"
 mkdir -p "${ARTIFACT_DIR}/@abtnode/blocklet-services/api/services/auth/connect"

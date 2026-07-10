@@ -400,6 +400,43 @@ describe('Google DeBOS launch auth', () => {
     });
   });
 
+  test('rejects Google launch login when the email is not verified', async () => {
+    const node = createNode();
+    const googleClientFactory = () => ({
+      getToken: () => Promise.resolve({ access_token: 'token' }),
+      getProfile: () =>
+        Promise.resolve({
+          sub: 'google-oauth2|unverified',
+          name: 'Alice',
+          email: 'alice@example.com',
+          emailVerified: false,
+        }),
+    });
+    const app = createApp(node, googleClientFactory);
+    const state = googleDebosLaunchRoutes.signState(
+      {
+        origin: 'https://server.example',
+        expiresAt: Date.now() + 60_000,
+      },
+      'test-session-secret'
+    );
+
+    const res = await request(app)
+      .post('/api/oauth/debos-launch/login')
+      .set('host', 'server.example')
+      .set('x-forwarded-proto', 'https')
+      .set('origin', 'https://server.example')
+      .send({
+        blockletMetaUrl: 'https://store.example/debos/blocklet.json',
+        code: 'authorization-code',
+        state,
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.text).toContain('verified Google email');
+    expect(node.calls.loginUser).toHaveLength(0);
+  });
+
   test('rejects Google login when the metadata is not DeBOS', async () => {
     const node = createNode({ blockletDid: fromRandom().address });
     const app = createApp(node, () => ({}));

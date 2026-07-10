@@ -1,4 +1,5 @@
 const { messages } = require('@abtnode/auth/lib/auth');
+const { assertDebosLaunchLoginAllowed } = require('@abtnode/auth/lib/debos-launch-guard');
 const formatContext = require('@abtnode/util/lib/format-context');
 const getRequestIP = require('@abtnode/util/lib/get-request-ip');
 const { DEBOS_BLOCKLET_DID, ROLES } = require('@abtnode/constant');
@@ -70,6 +71,12 @@ module.exports = function createRoutes(node) {
     onAuth: async ({ claims, userDid, userPk, updateSession, extraParams, req }) => {
       const { locale = 'en', blockletMetaUrl } = extraParams;
       await ensureDebosLaunchRequest({ node, blockletMetaUrl, locale });
+      await assertDebosLaunchLoginAllowed({
+        node,
+        provider: LOGIN_PROVIDER.WALLET,
+        userDid,
+        req,
+      });
 
       const info = await node.getNodeInfo();
       const existingUser = await node.getUser({

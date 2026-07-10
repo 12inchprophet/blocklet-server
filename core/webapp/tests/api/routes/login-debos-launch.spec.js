@@ -1,4 +1,4 @@
-const { describe, expect, test } = require('bun:test');
+const { afterEach, describe, expect, test } = require('bun:test');
 const { fromRandom } = require('@ocap/wallet');
 const { DEBOS_BLOCKLET_DID, ROLES } = require('@abtnode/constant');
 const { LOGIN_PROVIDER } = require('@blocklet/constant');
@@ -6,6 +6,16 @@ const { LOGIN_PROVIDER } = require('@blocklet/constant');
 process.env.ABT_NODE_SESSION_SECRET = 'test';
 
 const createLoginDebosLaunchAuth = require('../../../api/routes/auth/login-debos-launch');
+
+const ORIGINAL_BLOCKED_DIDS = process.env.DEBOS_LAUNCH_BLOCKED_DIDS;
+
+afterEach(() => {
+  if (ORIGINAL_BLOCKED_DIDS === undefined) {
+    delete process.env.DEBOS_LAUNCH_BLOCKED_DIDS;
+  } else {
+    process.env.DEBOS_LAUNCH_BLOCKED_DIDS = ORIGINAL_BLOCKED_DIDS;
+  }
+});
 
 const createNode = ({ blockletDid = DEBOS_BLOCKLET_DID, existingUser = null } = {}) => {
   const nodeWallet = fromRandom();
@@ -99,5 +109,24 @@ describe('login-debos-launch auth route', () => {
         req: createReq(),
       })
     ).rejects.toThrow();
+  });
+
+  test('rejects a blocked wallet before creating a launch session', async () => {
+    const node = createNode();
+    const route = createLoginDebosLaunchAuth(node);
+    const userWallet = fromRandom();
+    process.env.DEBOS_LAUNCH_BLOCKED_DIDS = userWallet.address;
+
+    await expect(
+      route.onAuth({
+        claims: [],
+        userDid: userWallet.address,
+        userPk: userWallet.publicKey,
+        updateSession: async () => {},
+        extraParams: { locale: 'en', blockletMetaUrl: 'https://store.example/blocklet.json' },
+        req: createReq(),
+      })
+    ).rejects.toThrow('wallet is not allowed');
+    expect(node.calls.loginUser).toHaveLength(0);
   });
 });

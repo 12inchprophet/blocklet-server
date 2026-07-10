@@ -72,6 +72,7 @@ const {
   upsertToPassports,
 } = require('./passport');
 const { getLauncherSession } = require('./launcher');
+const { reserveDebosLaunch, updateLaunchRecord } = require('./debos-launch-guard');
 const logger = require('./logger');
 
 const LAUNCH_BLOCKLET_TOKEN_EXPIRE = '1d';
@@ -849,6 +850,17 @@ const createLaunchBlockletHandler =
     const appSk = toHex(claim.secret);
     const wallet = getApplicationWallet(appSk, undefined, blockletWalletType);
     const appDid = wallet.address;
+    const launchGuardRecord = await reserveDebosLaunch({
+      node,
+      blocklet,
+      appDid,
+      role,
+      provider,
+      userDid,
+      user,
+      req,
+      context,
+    });
     const { id: sessionId } = await node.startSession({
       data: {
         appDid,
@@ -864,11 +876,17 @@ const createLaunchBlockletHandler =
     });
 
     await updateSession({ appDid, sessionId });
+    if (launchGuardRecord) {
+      await updateLaunchRecord({ node, launchId: launchGuardRecord.id, sessionId, appDid });
+    }
 
     if (blocklet) {
       // 检查是否已安装，这里不做升级的处理
       const existedBlocklet = await node.getBlocklet({ did: appDid });
       if (existedBlocklet) {
+        if (launchGuardRecord) {
+          await updateLaunchRecord({ node, launchId: launchGuardRecord.id, sessionId, appDid, status: 'installed' });
+        }
         await updateSession({ isInstalled: true });
         logger.info('blocklet already exists', { appDid });
         return null;
@@ -894,47 +912,64 @@ const createLaunchBlockletHandler =
         storeUrl: extraParams.storeUrl,
       };
     }
-    await node.installBlocklet(
-      {
-        ...boundSource,
-        url: blockletMetaUrl,
-        title,
-        description,
-        appSk,
-        skSource: didwallet?.version ? `${didwallet.os}-wallet-v${didwallet.version}` : '',
-        downloadTokenList: extraParams?.previousWorkflowData?.downloadTokenList,
-        controller: role === SERVER_ROLES.EXTERNAL_BLOCKLET_CONTROLLER ? controller : null,
-        onlyRequired,
-      },
-      context || formatContext(Object.assign(req, { user: { ...pick(user, ['did', 'fullName']), role } }))
-    );
+    try {
+      await node.installBlocklet(
+        {
+          ...boundSource,
+          url: blockletMetaUrl,
+          title,
+          description,
+          appSk,
+          skSource: didwallet?.version ? `${didwallet.os}-wallet-v${didwallet.version}` : '',
+          downloadTokenList: extraParams?.previousWorkflowData?.downloadTokenList,
+          controller: role === SERVER_ROLES.EXTERNAL_BLOCKLET_CONTROLLER ? controller : null,
+          onlyRequired,
+        },
+        context || formatContext(Object.assign(req, { user: { ...pick(user, ['did', 'fullName']), role } }))
+      );
 
-    const deviceData = getDeviceData({ req });
+      const deviceData = getDeviceData({ req });
 
-    const result = await node.setupAppOwner({
-      node,
-      sessionId,
-      justCreate: !blockletMetaUrl,
-      autoStart,
-      provider,
-      context: {
-        visitorId: extraParams.visitorId,
-        ua: context?.ua || req?.get('user-agent'),
-        lastLoginIp: context?.ip || getRequestIP(req),
-        walletOS: didwallet?.os,
-        userDid,
-        device: context ? deviceData : null,
-        origin: await getOrigin({ req }),
-      },
-    });
-    await updateSession({ setupToken: result.setupToken, visitorId: result.visitorId });
+      const result = await node.setupAppOwner({
+        node,
+        sessionId,
+        justCreate: !blockletMetaUrl,
+        autoStart,
+        provider,
+        context: {
+          visitorId: extraParams.visitorId,
+          ua: context?.ua || req?.get('user-agent'),
+          lastLoginIp: context?.ip || getRequestIP(req),
+          walletOS: didwallet?.os,
+          userDid,
+          device: context ? deviceData : null,
+          origin: await getOrigin({ req }),
+        },
+      });
+      await updateSession({ setupToken: result.setupToken, visitorId: result.visitorId });
+      if (launchGuardRecord) {
+        await updateLaunchRecord({ node, launchId: launchGuardRecord.id, sessionId, appDid, status: 'installed' });
+      }
 
-    return {
-      disposition: 'attachment',
-      type: 'VerifiableCredential',
-      data: result.passport,
-      visitorId: result.visitorId,
-    };
+      return {
+        disposition: 'attachment',
+        type: 'VerifiableCredential',
+        data: result.passport,
+        visitorId: result.visitorId,
+      };
+    } catch (error) {
+      if (launchGuardRecord) {
+        await updateLaunchRecord({
+          node,
+          launchId: launchGuardRecord.id,
+          sessionId,
+          appDid,
+          status: 'failed',
+          reason: error.message,
+        });
+      }
+      throw error;
+    }
   };
 
 const getBlockletPermissionChecker =
